@@ -24,6 +24,10 @@ import matplotlib.pyplot as plt
 epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
+# Get date and time for naming files (prevents overwriting)
+now = datetime.now()
+DATE_TIME = now.strftime("D%Y-%m-%d_T%H-%M-%S")
+
 '''
 TODOS:
     - Most pressing issue: channels only vary at very small scales inside a block, but a lot between blocks. 
@@ -35,7 +39,7 @@ TODOS:
         -> OR TEST: normalise each channel for each trial by first subtracting the mean of the activation from
                     t = -1000ms to t = 0ms, then scale.
 
-    - Debug problem with discrepant bad channels and issues with labels from files with unclear names of result files.
+    - What to do with bad channels? and issues with labels from files with unclear names of result files?
 
     - COMMENT this code early enough!
     
@@ -44,6 +48,8 @@ TODOS:
 
 
 def calculate_mean_decoding_accuracy():
+    os.makedirs('data/{}'.format(DATE_TIME), exist_ok=True)
+
     subject_ids = np.array(get_subject_ids(os.listdir(epoched_data_path)))
 
     accuracies = []
@@ -51,16 +57,14 @@ def calculate_mean_decoding_accuracy():
     for subject_id in subject_ids:
         print("\n------------------------\nLOGGER: Decoding subject #{}\n------------------------\n".format(subject_id))
         epochs_list, labels_list = load_subject_train_data(subject_id)
-        acc = decode_subject_response_over_time(epochs_list, labels_list)
+        acc = decode_subject_response_over_time(epochs_list, labels_list, subject_id)
         accuracies.append(acc)
 
     accuracies = np.array(accuracies)
 
-    # Get date and time for naming files (prevents overwriting)
-    now = datetime.now()
-    formatted_date_time = now.strftime("_D%Y-%m-%d_T%H-%M-%S")
 
-    np.save('results/mvpa_accuracies{}.npy'.format(formatted_date_time), accuracies)
+
+    np.save('results/mvpa_accuracies_{}.npy'.format(DATE_TIME), accuracies)
 
     # PLOT (could get its own method)
 
@@ -75,7 +79,7 @@ def calculate_mean_decoding_accuracy():
     plt.ylabel('Mean Activation')
     plt.title('Mean Activation with Confidence Intervals')
 
-    plt.savefig('results/mean_accuracies{}.png'.format(formatted_date_time))
+    plt.savefig('results/mean_accuracies_{}.png'.format(DATE_TIME))
 
     # Show the plot
     plt.show()
@@ -98,7 +102,9 @@ def load_results_and_plot(path: str) -> None:
     plt.show()
 
 
-def decode_subject_response_over_time(epochs_list: List[EpochsFIF], labels_list: List[List[int]]) -> List[float]:
+def decode_subject_response_over_time(epochs_list: List[EpochsFIF],
+                                      labels_list: List[List[int]],
+                                      subject_id: int) -> List[float]:
     scaled_epochs = []
     labels_filtered = []
 
@@ -128,10 +134,7 @@ def decode_subject_response_over_time(epochs_list: List[EpochsFIF], labels_list:
     scaled_epochs = np.concat(scaled_epochs, axis=0)
     labels_filtered = np.array(labels_filtered)
 
-    # Get date and time for naming files (prevents overwriting)
-    now = datetime.now()
-    formatted_date_time = now.strftime("_D%Y-%m-%d_T%H-%M-%S")
-    np.save('data/scaled_epochs{}.npy'.format(formatted_date_time))
+    np.save('data/{}/scaled_epochs_{}.npy'.format(DATE_TIME, subject_id), scaled_epochs)
     accuracies = []
 
     for t in range(scaled_epochs.shape[-1]):
@@ -223,12 +226,12 @@ def get_subject_ids(filenames: List[str]) -> List[int]:
     subject_ids.remove(117)
 
     # TODO: subjects with discrepant bad channels
-    subject_ids.remove(13)
-    subject_ids.remove(24)
-    subject_ids.remove(25)
-    subject_ids.remove(40)
-    subject_ids.remove(124)
-    subject_ids.remove(137)
+    # subject_ids.remove(13)
+    # subject_ids.remove(24)
+    # subject_ids.remove(25)
+    # subject_ids.remove(40)
+    # subject_ids.remove(124)
+    # subject_ids.remove(137)
 
     # Print the extracted numbers
     return subject_ids
