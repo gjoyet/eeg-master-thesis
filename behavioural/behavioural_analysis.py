@@ -1,9 +1,7 @@
 import os.path
-import re
-from typing import Dict, Tuple, Union, List
+from typing import Dict, Tuple, List
 
 import numpy as np
-import pandas
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -66,7 +64,7 @@ def calculate_per_subject_metrics() -> \
     return lapse_rate, lapse_rate_drop_NA, reaction_time, early_reaction_rate, contrast_threshold
 
 
-def psychophysical_kernel_auroc() -> pandas.DataFrame:
+def psychophysical_kernel_auroc() -> pd.DataFrame:
     ppk_df = pd.DataFrame(columns=['subject_id', 'subject_type', 'stimulus_category', 'sample_n', 'auroc'])
 
     cols = ['response', 'side'] + ['contrast_left_{}'.format(i) for i in range(1, 11)] + ['contrast_right_{}'.format(i)
@@ -88,7 +86,7 @@ def psychophysical_kernel_auroc() -> pandas.DataFrame:
     return ppk_df
 
 
-def psychophysical_kernel_glm() -> pandas.DataFrame:
+def psychophysical_kernel_glm() -> pd.DataFrame:
     ppk_df = pd.DataFrame(columns=['subject_id', 'subject_type', 'stimulus_category', 'sample_n', 'weight'])
 
     cols = ['response', 'side'] + ['contrast_left_{}'.format(i) for i in range(1, 11)] + ['contrast_right_{}'.format(i)
@@ -148,7 +146,7 @@ def calculate_metric_correlation():
     return corr_df
 
 
-def file_to_df_iterator(path: str, cols: List[str]) -> Tuple[str, str, pandas.DataFrame]:
+def file_to_df_iterator(path: str, cols: List[str]) -> Tuple[str, str, pd.DataFrame]:
     directory_content = os.listdir(path)
 
     for folder in directory_content:
@@ -176,7 +174,7 @@ def file_to_df_iterator(path: str, cols: List[str]) -> Tuple[str, str, pandas.Da
             yield folder, subject, combined_df
 
 
-def load_all_data(path: str, cols: List[str]) -> pandas.DataFrame:
+def load_all_data(path: str, cols: List[str]) -> pd.DataFrame:
     directory_content = os.listdir(path)
 
     dfs = []
@@ -225,7 +223,7 @@ def plot_metrics():
     # plt.show()
 
 
-def plot_ppk(ppk_df: pandas.DataFrame, method: str):
+def plot_ppk(ppk_df: pd.DataFrame, method: str):
     # Set up the plot
     plt.figure(figsize=(10, 6))
 
@@ -249,7 +247,7 @@ def plot_ppk(ppk_df: pandas.DataFrame, method: str):
     # plt.show()
 
 
-def plot_corr(corr_df: pandas.DataFrame):
+def plot_corr(corr_df: pd.DataFrame):
     # Set up the plot
     plt.figure(figsize=(10, 6))
 
