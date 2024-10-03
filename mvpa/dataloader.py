@@ -11,6 +11,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
+from datetime import datetime
 import time
 import timeit
 
@@ -55,7 +56,11 @@ def calculate_mean_decoding_accuracy():
 
     accuracies = np.array(accuracies)
 
-    np.save('results/mvpa_accuracies.npy', accuracies)
+    # Get date and time for naming files (prevents overwriting)
+    now = datetime.now()
+    formatted_date_time = now.strftime("_D%Y-%m-%d_T%H-%M-%S")
+
+    np.save('results/mvpa_accuracies{}.npy'.format(formatted_date_time), accuracies)
 
     # PLOT (could get its own method)
 
@@ -69,6 +74,8 @@ def calculate_mean_decoding_accuracy():
     plt.xlabel('Time (samples)')
     plt.ylabel('Mean Activation')
     plt.title('Mean Activation with Confidence Intervals')
+
+    plt.savefig('results/mean_accuracies{}.png'.format(formatted_date_time))
 
     # Show the plot
     plt.show()
@@ -120,6 +127,11 @@ def decode_subject_response_over_time(epochs_list: List[EpochsFIF], labels_list:
 
     scaled_epochs = np.concat(scaled_epochs, axis=0)
     labels_filtered = np.array(labels_filtered)
+
+    # Get date and time for naming files (prevents overwriting)
+    now = datetime.now()
+    formatted_date_time = now.strftime("_D%Y-%m-%d_T%H-%M-%S")
+    np.save('data/scaled_epochs{}.npy'.format(formatted_date_time))
     accuracies = []
 
     for t in range(scaled_epochs.shape[-1]):
