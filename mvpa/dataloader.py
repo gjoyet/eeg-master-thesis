@@ -47,8 +47,9 @@ TODOS:
 '''
 
 
-def calculate_mean_decoding_accuracy():
-    os.makedirs('data/{}'.format(DATE_TIME), exist_ok=True)
+def calculate_mean_decoding_accuracy(test: bool = False):
+    if not test:
+        os.makedirs('data/{}'.format(DATE_TIME), exist_ok=True)
 
     subject_ids = np.array(get_subject_ids(os.listdir(epoched_data_path)))
 
@@ -57,46 +58,42 @@ def calculate_mean_decoding_accuracy():
     for subject_id in subject_ids:
         print("\n------------------------\nLOGGER: Decoding subject #{}\n------------------------\n".format(subject_id))
         epochs_list, labels_list = load_subject_train_data(subject_id)
-        acc = decode_subject_response_over_time(epochs_list, labels_list, subject_id)
+        acc = decode_subject_response_over_time(epochs_list, labels_list, subject_id, test=test)
         accuracies.append(acc)
+        # 'test' variable breaks out of loop early so that the code runs faster
+        if test:
+            if subject_id >= 10:
+                break
 
     accuracies = np.array(accuracies)
 
+    if not test:
+        np.save('results/mvpa_accuracies_{}.npy'.format(DATE_TIME), accuracies)
+
+    plot_accuracies(data=accuracies)
 
 
-    np.save('results/mvpa_accuracies_{}.npy'.format(DATE_TIME), accuracies)
+def plot_accuracies(data: np.ndarray = None, path: str = None) -> None:
+    if data is None:
+        data = np.load(path)
 
-    # PLOT (could get its own method)
+    df = pd.DataFrame(data=data.T)
+    df = df.reset_index().rename(columns={'index': 'Time'})
+    df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
 
     # Create a seaborn lineplot, passing the matrix directly to seaborn
     plt.figure(figsize=(10, 6))  # Optional: Set the figure size
 
     # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=np.mean(accuracies, axis=0))
+    sns.lineplot(data=df, x='Time', y='Mean_Accuracy', errorbar='sd')
 
     # Set plot labels and title
     plt.xlabel('Time (samples)')
-    plt.ylabel('Mean Activation')
-    plt.title('Mean Activation with Confidence Intervals')
+    plt.ylabel('Mean Accuracy')
+    plt.title('Mean Accuracy with Confidence Intervals')
 
-    plt.savefig('results/mean_accuracies_{}.png'.format(DATE_TIME))
-
-    # Show the plot
-    plt.show()
-
-
-def load_results_and_plot(path: str) -> None:
-    accuracies = np.load(path)
-    # Create a seaborn lineplot, passing the matrix directly to seaborn
-    plt.figure(figsize=(10, 6))  # Optional: Set the figure size
-
-    # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=np.mean(accuracies, axis=0))
-
-    # Set plot labels and title
-    plt.xlabel('Time (samples)')
-    plt.ylabel('Mean Activation')
-    plt.title('Mean Activation with Confidence Intervals')
+    if path is None:
+        plt.savefig('results/mean_accuracies_{}.png'.format(DATE_TIME))
 
     # Show the plot
     plt.show()
@@ -104,20 +101,27 @@ def load_results_and_plot(path: str) -> None:
 
 def decode_subject_response_over_time(epochs_list: List[EpochsFIF],
                                       labels_list: List[List[int]],
-                                      subject_id: int) -> List[float]:
+                                      subject_id: int,
+                                      test: bool = False) -> List[float]:
     scaled_epochs = []
     labels_filtered = []
 
     # This loop rescales the data one experiment block at a time. This is because baseline channel activation
     # varies a lot between blocks, but channel activation varies on a much smaller scale inside a block.
     for epoch, labels in zip(epochs_list, labels_list):
+        # TODO: transfer this section to new methods called preprocess_data()
         data = epoch.get_data()
 
         data_filtered = data[~np.isnan(labels)]
         labels_filtered.extend(labels[~np.isnan(labels)])
 
+        # subtract the mean from the 1000ms before stimulus presentation as a baseline
+        data_filtered -= np.mean(data_filtered[:, :, :1001], axis=2)[:, :, np.newaxis]
+
         scaler = StandardScaler()
         num_epochs, num_channels, num_timesteps = data_filtered.shape
+
+        # TODO: next try to scale channels over epochs individually instead of over all epochs
 
         # Transpose and reshape for StandardScaler (only takes 2d input)
         data_filtered = np.transpose(data_filtered, axes=(0, 2, 1))
@@ -134,11 +138,11 @@ def decode_subject_response_over_time(epochs_list: List[EpochsFIF],
     scaled_epochs = np.concat(scaled_epochs, axis=0)
     labels_filtered = np.array(labels_filtered)
 
-    np.save('data/{}/scaled_epochs_{}.npy'.format(DATE_TIME, subject_id), scaled_epochs)
+    if not test:
+        np.save('data/{}/scaled_epochs_{}.npy'.format(DATE_TIME, subject_id), scaled_epochs)
     accuracies = []
 
     for t in range(scaled_epochs.shape[-1]):
-        # clf = make_pipeline(StandardScaler(), LinearSVC(C=1.0, random_state=0, tol=1e-5))
         clf = svm.SVC(kernel='linear', C=1, random_state=42)
         scores = cross_val_score(clf, scaled_epochs[:, :, t], labels_filtered, cv=5)
         accuracies.append(np.mean(scores))
@@ -238,6 +242,6 @@ def get_subject_ids(filenames: List[str]) -> List[int]:
 
 
 if __name__ == '__main__':
-    calculate_mean_decoding_accuracy()
+    # calculate_mean_decoding_accuracy()
 
-    # load_results_and_plot('/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/mvpa_accuracies.npy')
+    plot_accuracies(path='/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/mvpa_accuracies_D2024-10-03_T16-50-01.npy')
