@@ -30,29 +30,25 @@ DATE_TIME = now.strftime("D%Y-%m-%d_T%H-%M-%S")
 
 '''
 TODOS:
-    - Most pressing issue: channels only vary at very small scales inside a block, but a lot between blocks. 
-        How do still make an SVM work? Scaling? Can PCA also help?
-        -> I need to scale each block individually I think. Therefore do not concatenate epochs and scale them
-           at the beginning of decode_subject_response_over_time().
-        -> Better for now, but maybe I should even scale each channel separately?
-        -> TO TEST:  Scaler w/o PCA (now), PCA w/o Scaler, Scaler then PCA, PCA then Scaler
-        -> OR TEST: normalise each channel for each trial by first subtracting the mean of the activation from
-                    t = -1000ms to t = 0ms, then scale.
-        -> FIRST: Subsampling.
-
+    - NEXT STEP: add PCA
+    - Scaling issue:
+        -> TO TEST:  Scaler w/o PCA (now), PCA w/o Scaler, Scaler then PCA, (PCA then Scaler)
     - What to do with bad channels? and issues with labels from files with unclear names of result files?
-
-    - COMMENT this code early enough!
     
     - Frequency analysis?
 '''
 
 
 def calculate_mean_decoding_accuracy(test: bool = False):
+    """
+    Outermost method. Calls function to load, process and decode data (once per subject).
+    :param test: if True, does not store processed data and decodes only a small number of subjects.
+    :return: None
+    """
     if not test:
         os.makedirs('data/{}'.format(DATE_TIME), exist_ok=True)
 
-    subject_ids = np.array(get_subject_ids(os.listdir(epoched_data_path)))
+    subject_ids = get_subject_ids(epoched_data_path)
 
     accuracies = []
 
@@ -80,6 +76,12 @@ def calculate_mean_decoding_accuracy(test: bool = False):
 
 
 def decode_subject_response_over_time(proc_epochs: np.ndarray, proc_labels: np.ndarray) -> np.ndarray:
+    """
+    Decodes data from one subject.
+    :param proc_epochs: already processed (scaled, baseline subtracted) epochs.
+    :param proc_labels: labels (NaN and corresponding epochs already removed).
+    :return: array of decoding accuracies, one per time point in the data.
+    """
     subject_accuracies = []
 
     for t in range(proc_epochs.shape[-1]):
@@ -96,10 +98,22 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
                           subsampling_rate: int = 1,
                           test: bool = None) -> Tuple[np.ndarray, np.ndarray]:
     """
+    Preprocessed training data. Removes NaN labels (and corresponding epochs),
+    subtracts baseline (mean activation before stimulus onset) from each epoch independently,
+    scales channels (over all epochs).
+    :param epochs_list: list of mne.Epochs objects.
+    :param labels_list: list of labels (subject choice at corresponding epoch).
+    :param subject_id:
+    :param subsampling_rate: number of samples that are collapsed into one by averaging.
+    :param test: if True, does not store processed data.
+    :return: 3D numpy array of processed epoch data (of shape #epochs x #channels x #timesteps)
+             numpy array of labels
+    """
+    '''
     For now things like scaling and PCA are calculated on complete data.
     If we want to calculate it on train and apply it on test, we will need to do it differently
     (since for now train/test splits are done inside cross_val_scores).
-    """
+    '''
     proc_epochs = []
     labels_filtered = []
 
@@ -147,6 +161,12 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
 
 
 def load_subject_train_data(subject_id: int) -> Tuple[List[EpochsFIF], List[np.ndarray[int]]]:
+    """
+    Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
+    :param subject_id:
+    :return: list of mne.Epoch objects (one per experiment block)
+             corresponding list of labels
+    """
     epochs_dict = load_subject_epochs(subject_id)
     results_df = load_subject_labels(subject_id)
 
@@ -167,7 +187,9 @@ def load_subject_train_data(subject_id: int) -> Tuple[List[EpochsFIF], List[np.n
 
 def load_subject_epochs(subject_id: int) -> Dict[int, EpochsFIF]:
     """
-    :return: a dict with block numbers as keys and epochs of the corresponding blocks as values.
+    Loads epoch data for one subject.
+    :param subject_id:
+    :return: dict, keys are experiment block numbers, values are a mne.Epoch object for the corresponding block.
     """
     filenames = os.listdir(epoched_data_path)
 
@@ -184,6 +206,12 @@ def load_subject_epochs(subject_id: int) -> Dict[int, EpochsFIF]:
 
 
 def load_subject_labels(subject_id: int) -> pd.DataFrame:
+    """
+    Loads labels (behavioural outcomes) for one subject.
+    :param subject_id:
+    :return: a pandas dataframe containing subject response and
+             block number ('run') for subsequent join with epoch data.
+    """
     subdirectory_content = os.listdir(os.path.join(behav_data_path, str(subject_id)))
 
     cols = ['session', 'run', 'response', 'confidence', 'correct']
@@ -200,7 +228,14 @@ def load_subject_labels(subject_id: int) -> pd.DataFrame:
     return combined_df
 
 
-def get_subject_ids(filenames: List[str]) -> List[int]:
+def get_subject_ids(path: str) -> np.ndarray:
+    """
+    Scan through directory to get a list of subject IDs.
+    :param path: path to the directory containing the files.
+    :return: numpy array of subject IDs.
+    """
+    filenames = os.listdir(path)
+
     subject_ids = []
 
     # Regular expression pattern to match "_sj" followed by digits and ending with "_"
@@ -233,11 +268,16 @@ def get_subject_ids(filenames: List[str]) -> List[int]:
     # subject_ids.remove(124)
     # subject_ids.remove(137)
 
-    # Print the extracted numbers
-    return subject_ids
+    return np.array(subject_ids)
 
 
 def plot_accuracies(data: np.ndarray = None, path: str = None) -> None:
+    """
+    Plots the mean accuracy over time with confidence band over subjects.
+    :param data: 2D numpy array, where each row is the decoding accuracy for one subject over all timesteps.
+    :param path: if data is None, this path indicates what file to load the data from.
+    :return: None
+    """
     if data is None:
         data = np.load(path)
 
