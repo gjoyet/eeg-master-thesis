@@ -1,16 +1,16 @@
 import os.path
 import re
-from typing import Dict, Tuple, Union, List
+from typing import Dict, Tuple, Union, List, Callable
 
 import mne
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.svm import LinearSVC
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn import svm
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, GridSearchCV
 from datetime import datetime
 import time
 import timeit
@@ -100,19 +100,23 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
     """
     Preprocessed training data. Removes NaN labels (and corresponding epochs),
     subtracts baseline (mean activation before stimulus onset) from each epoch independently,
-    scales channels (over all epochs).
+    scales channels (over all epochs),
+    performs PCA retaining 99% of variance (over all epochs).
     :param epochs_list: list of mne.Epochs objects.
     :param labels_list: list of labels (subject choice at corresponding epoch).
     :param subject_id:
     :param subsampling_rate: number of samples that are collapsed into one by averaging.
     :param test: if True, does not store processed data.
-    :return: 3D numpy array of processed epoch data (of shape #epochs x #channels x #timesteps)
+    :return: 3D numpy array of processed epoch data (of shape #epochs x #pca_components x #timesteps)
              numpy array of labels
     """
     '''
     For now things like scaling and PCA are calculated on complete data.
     If we want to calculate it on train and apply it on test, we will need to do it differently
     (since for now train/test splits are done inside cross_val_scores).
+    -> I could just do my own cross-validation, as the only thing it requires is calculating the
+       indices for the folds (something like random_partition(range()) probably exists) and then
+       run it once for each fold.
     '''
     proc_epochs = []
     labels_filtered = []
@@ -132,32 +136,52 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
         data = np.reshape(data[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // subsampling_rate,
                                                  subsampling_rate))
         data = np.mean(data, axis=-1)
-        num_timesteps = data.shape[-1]
 
         # SUBTRACT MEAN from the 1000ms before stimulus presentation as a baseline
         data -= np.mean(data[:, :, :1000 // subsampling_rate], axis=2)[:, :, np.newaxis]
 
-        # Transpose and for StandardScaler (expects features (channels) at last dimension)
-        data = np.transpose(data, axes=(0, 2, 1))
-        data = np.reshape(data, shape=(num_epochs * num_timesteps, num_channels))
-
         # SCALE
         scaler = StandardScaler()
-        data = scaler.fit_transform(data)
-
-        # Transpose back
-        data = np.reshape(data, shape=(num_epochs, num_timesteps, num_channels))
-        data = np.transpose(data, axes=(0, 2, 1))
+        data = reshape_transform_reshape(data=data, func=scaler.fit_transform)
 
         proc_epochs.append(data)
 
     proc_epochs = np.concat(proc_epochs, axis=0)
+
+    # PERFORM PCA (on whole data)
+    pca = PCA(n_components=0.99, svd_solver='full')  # switching svd_solver to 'auto' might increase performance
+    proc_epochs = reshape_transform_reshape(data=proc_epochs, func=pca.fit_transform)
+
     labels_filtered = np.array(labels_filtered)
 
     if not test:
         np.save('data/{}/processed_epochs_{}.npy'.format(DATE_TIME, subject_id), proc_epochs)
 
     return proc_epochs, labels_filtered
+
+
+def reshape_transform_reshape(data: np.ndarray, func: Callable) -> np.ndarray:
+    """
+    Transposes and reshapes data such that features are at the last dimension, performs a transformation,
+    then reshapes and transposes back.
+    :param data: the data to be transformed.
+    :param func: the transformation to be applied.
+    :return: the transformed data.
+    """
+    num_epochs, num_channels, num_timesteps = data.shape
+
+    # Transpose and reshape (functions expect features (channels) at last dimension)
+    data = np.transpose(data, axes=(0, 2, 1))
+    data = np.reshape(data, shape=(num_epochs * num_timesteps, num_channels))
+
+    # Perform transformation
+    data = func(data)
+
+    # Transpose back
+    data = np.reshape(data, shape=(num_epochs, num_timesteps, -1))
+    data = np.transpose(data, axes=(0, 2, 1))
+
+    return data
 
 
 def load_subject_train_data(subject_id: int) -> Tuple[List[EpochsFIF], List[np.ndarray[int]]]:
