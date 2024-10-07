@@ -50,7 +50,15 @@ def calculate_mean_decoding_accuracy(test: bool = False):
 
     subject_ids = get_subject_ids(epoched_data_path)
 
+    # 'test' being True makes the code run on only a few subjects
+    if test:
+        subject_ids = np.random.choice(subject_ids, 8)
+
     accuracies = []
+    bbs_hc = []
+    bas_hc = []
+    bbs_scz = []
+    bas_scz = []
 
     for subject_id in subject_ids:
         epochs_list, labels_list = load_subject_train_data(subject_id)
@@ -58,16 +66,48 @@ def calculate_mean_decoding_accuracy(test: bool = False):
                                                          subsampling_rate=5, test=test)
         print("\n---------------------------\nLOGGER: Decoding subject #{}\n---------------------------\n".format(
             subject_id))
-        acc = decode_subject_response_over_time(proc_epochs, proc_labels)
+        acc, bb, ba = decode_subject_response_over_time(proc_epochs, proc_labels)
 
         accuracies.append(acc)
-
-        # 'test' variable breaks out of loop early so that the code runs faster
-        if test:
-            if subject_id >= 10:
-                break
+        if subject_id >= 100:
+            bbs_hc.extend(bb)
+            bas_hc.extend(ba)
+        else:
+            bbs_scz.append(bb)
+            bas_scz.append(ba)
 
     accuracies = np.array(accuracies)
+
+    vc1 = pd.Series(bbs_hc)
+    vc2 = pd.Series(bas_hc)
+    vc3 = pd.Series(bbs_scz)
+    vc4 = pd.Series(bas_scz)
+    vc1 = vc1.value_counts()
+    vc2 = vc2.value_counts()
+    vc3 = vc3.value_counts()
+    vc4 = vc4.value_counts()
+
+    # Combine vc1 and vc2 into a single DataFrame
+    df = pd.DataFrame({'HC Before': vc1, 'HC After': vc2, 'SCZ Before': vc3, 'SCZ After': vc4})
+
+    # Reset index to have 'Value' as a column
+    df = df.reset_index().rename(columns={'index': 'Value'})
+
+    # Melt the DataFrame to have a 'long' format for easier plotting
+    df_melted = df.melt(id_vars='Value', var_name='Source', value_name='Count')
+
+    # Plot the barplot with Seaborn
+    plt.figure(figsize=(8, 6))
+    sns.barplot(x='Value', y='Count', hue='Source', data=df_melted)
+
+    # Add labels and title
+    plt.title('Comparison of best C before and after 1000ms')
+    plt.ylabel('Count')
+    plt.xlabel('C')
+
+    # Save and show plot
+    plt.savefig('results/optimal_C_distribution.png')
+    plt.show()
 
     if not test:
         np.save('results/mvpa_accuracies_{}.npy'.format(DATE_TIME), accuracies)
@@ -84,12 +124,23 @@ def decode_subject_response_over_time(proc_epochs: np.ndarray, proc_labels: np.n
     """
     subject_accuracies = []
 
-    for t in range(proc_epochs.shape[-1]):
-        clf = svm.SVC(kernel='linear', C=1, random_state=42)
-        scores = cross_val_score(clf, proc_epochs[:, :, t], proc_labels, cv=5)
-        subject_accuracies.append(np.mean(scores))
+    best_C = []
 
-    return np.array(subject_accuracies)
+    for t in range(proc_epochs.shape[-1]):
+        clf_1 = svm.SVC(kernel='linear', C=1, random_state=42)
+        # # TODO: gridsearch thing for C
+        # scores = cross_val_score(clf, proc_epochs[:, :, t], proc_labels, cv=5)
+        # subject_accuracies.append(np.mean(scores))
+
+        svc = svm.SVC()
+        clf = GridSearchCV(svc, {'kernel': ['linear'], 'C': [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1], 'random_state': [42]}, cv=5)
+        clf.fit(proc_epochs[:, :, t], proc_labels)
+        best_C.append(clf.best_params_['C'])
+
+    best_C_before_1000 = best_C[:200]
+    best_C_after_1000 = best_C[200:]
+
+    return np.array(subject_accuracies), best_C_before_1000, best_C_after_1000
 
 
 def preprocess_train_data(epochs_list: List[EpochsFIF],
