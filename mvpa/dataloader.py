@@ -84,7 +84,7 @@ def decode_subject_response_over_time(proc_epochs: np.ndarray, proc_labels: np.n
     subject_accuracies = []
 
     for t in range(proc_epochs.shape[-1]):
-        clf = svm.SVC(kernel='linear', C=0.01, random_state=42)
+        clf = svm.SVC(kernel='linear', C=1, random_state=42)
         scores = cross_val_score(clf, proc_epochs[:, :, t], proc_labels, cv=5)
         subject_accuracies.append(np.mean(scores))
 
