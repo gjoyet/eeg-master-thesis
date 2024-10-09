@@ -14,7 +14,7 @@ import matplotlib
 matplotlib.use('macOSX')
 import matplotlib.pyplot as plt
 
-from dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data
+from dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data, average_augment_data
 
 epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
@@ -25,8 +25,7 @@ DATE_TIME = now.strftime("D%Y-%m-%d_T%H-%M-%S")
 
 '''
 TODOS:
-    - FIRST: move certain methods to decoder.py
-    - NEXT STEP: augment data (before or after scaling/PCA?).
+    - NEXT STEP: test average_augment_data() (before or after scaling/PCA?).
     - What to do with bad channels? and issues with labels from files with unclear names of result files?
 
     - Frequency analysis?
@@ -54,12 +53,16 @@ def calculate_mean_decoding_accuracy(test: bool = False):
         epochs_list, labels_list = load_subject_train_data(subject_id)
         proc_epochs = preprocess_train_data(epochs_list, subsampling_rate=5)
         proc_labels = np.concat(labels_list, axis=0)
+
+        # TODO: debug this. Does it make sense to do this after PCA? (probably not)
+        proc_epochs, proc_labels = average_augment_data(proc_epochs, proc_labels, k=4, augment_factor=4)
+
         if not test:
             np.save('data/{}/processed_epochs_{}.npy'.format(DATE_TIME, subject_id), proc_epochs)
 
         print("\n---------------------------\nLOGGER: Decoding subject #{}\n---------------------------\n".format(
             subject_id))
-        acc = decode_subject_response_over_time(proc_epochs, proc_labels)
+        acc = decode_subject_response_over_time(proc_epochs, proc_labels, window_width=20)
 
         accuracies.append(acc)
 
@@ -72,18 +75,23 @@ def calculate_mean_decoding_accuracy(test: bool = False):
 
 
 def decode_subject_response_over_time(proc_epochs: np.ndarray[float],
-                                      proc_labels: np.ndarray[int]) -> np.ndarray[float]:
+                                      proc_labels: np.ndarray[int],
+                                      window_width: int = 1) -> np.ndarray[float]:
     """
     Decodes data from one subject.
     :param proc_epochs: numpy array already processed epochs (shape #epochs x #channels x #timesteps).
     :param proc_labels: numpy array of labels (length #epochs).
+    :param window_width: width of sliding window (over time) that is fed as input to SVM.
     :return: numpy array of decoding accuracies, one accuracy per time point in the data.
     """
     subject_accuracies = []
 
-    for t in range(proc_epochs.shape[-1]):
+    num_epochs = proc_epochs.shape[0]
+
+    for t in range(proc_epochs.shape[-1] - window_width + 1):
         clf = svm.SVC(kernel='linear', C=1)
-        scores = cross_val_score(clf, proc_epochs[:, :, t], proc_labels, cv=5)
+        scores = cross_val_score(clf, np.reshape(proc_epochs[:, :, t:t+window_width], shape=(num_epochs, -1)),
+                                 proc_labels, cv=5)
         subject_accuracies.append(np.mean(scores))
 
     return np.array(subject_accuracies)
@@ -122,6 +130,6 @@ def plot_accuracies(data: np.ndarray = None, path: str = None) -> None:
 
 
 if __name__ == '__main__':
-    calculate_mean_decoding_accuracy(test=False)
+    calculate_mean_decoding_accuracy(test=True)
 
     # plot_accuracies(path='/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/mvpa_accuracies_D2024-10-03_T16-50-01.npy')

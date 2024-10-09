@@ -10,9 +10,55 @@ from sklearn.decomposition import PCA
 
 from mne.epochs import EpochsFIF
 
-
 epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
+
+
+def average_augment_data(epochs: np.ndarray[float],
+                         labels: np.ndarray[int],
+                         k: int = 4,
+                         augment_factor: int = 1) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+    """
+    Randomly averages trials with same label to create pseudo-trials. Optionally augments data by averaging the
+    data several times in different partitions, i.e. each trials is used for several pseudo-trials.
+    :param epochs: original epoch data.
+    :param labels: original labels.
+    :param k: number of trials to be averaged per pseudo-trial.
+    :param augment_factor: number of pseudo-trials each original trial will be in.
+    :return: numpy array with pseudo-trials (of shape #pseudo-epochs x #channels x #timesteps),
+             numpy array with corresponding labels.
+    """
+
+    pseudo_epochs = []
+    pseudo_labels = []
+
+    for lab in [-1, 1]:
+        side_epochs = epochs[labels == lab]
+
+        # n is the number of partitions, and k is the number of samples per partition
+        n = side_epochs.shape[0] // k
+
+        for _ in range(augment_factor):
+            # Step 1: Shuffle the data along the first dimension
+            shuffled_array = np.random.permutation(side_epochs)
+
+            # Step 2: Split the shuffled array into n partitions
+            partitions = np.array_split(shuffled_array, n)
+            partition_averages = np.stack([np.mean(p, axis=0) for p in partitions])
+
+            # Step 3: Take the mean over dimension 1 (e.g. epochs inside a partition)
+            pseudo_epochs.append(partition_averages)
+            pseudo_labels.extend(np.full(partition_averages.shape[0], lab))
+
+    pseudo_epochs = np.concat(pseudo_epochs, axis=0)
+    pseudo_labels = np.array(pseudo_labels)
+
+    # Reshuffle data
+    shuffle_idxs = np.random.permutation(range(len(pseudo_labels)))
+    pseudo_epochs = pseudo_epochs[shuffle_idxs]
+    pseudo_labels = pseudo_labels[shuffle_idxs]
+
+    return pseudo_epochs, pseudo_labels
 
 
 def preprocess_train_data(epochs_list: List[np.ndarray[float]], subsampling_rate: int = 1) -> np.ndarray[float]:
@@ -21,9 +67,9 @@ def preprocess_train_data(epochs_list: List[np.ndarray[float]], subsampling_rate
     Scales channels (each block independently),
     performs PCA retaining 99% of variance (over all epochs).
     :param epochs_list: list of numpy arrays containing epoch data.
-             Each array in the list has shape (#epochs x #channels x #timesteps).
+             Each array in the list has shape #epochs x #channels x #timesteps.
     :param subsampling_rate: number of samples that are collapsed into one by averaging.
-    :return: numpy array of concatenated processed epoch data (of shape #epochs x #pca_components x #timesteps)
+    :return: numpy array of concatenated processed epoch data (of shape #epochs x #pca_components x #timesteps).
     """
     '''
     For now things like scaling and PCA are calculated on complete data.
@@ -91,7 +137,7 @@ def load_subject_train_data(subject_id: int) -> Tuple[List[np.ndarray[float]], L
     Applies baseline and drops NaN labels.
     :param subject_id:
     :return: list of numpy arrays containing epoch data (one per experiment block),
-             list of numpy arrays with corresponding labels
+             list of numpy arrays with corresponding labels.
     """
     epochs_dict = load_subject_epochs(subject_id)
     results_df = load_subject_labels(subject_id)
