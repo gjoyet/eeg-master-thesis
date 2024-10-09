@@ -1,113 +1,29 @@
 import os.path
 import re
-from typing import Dict, Tuple, Union, List, Callable
+from typing import Dict, Tuple, List, Callable
 
 import mne
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn import svm
-from sklearn.model_selection import cross_val_score, GridSearchCV
-from datetime import datetime
-import time
-import timeit
 
-import matplotlib
 from mne.epochs import EpochsFIF
 
-matplotlib.use('macOSX')
-import matplotlib.pyplot as plt
 
 epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
-# Get date and time for naming files (prevents overwriting)
-now = datetime.now()
-DATE_TIME = now.strftime("D%Y-%m-%d_T%H-%M-%S")
 
-'''
-TODOS:
-    - NEXT STEP: add PCA
-    - Scaling issue:
-        -> TO TEST:  Scaler w/o PCA (now), PCA w/o Scaler, Scaler then PCA, (PCA then Scaler)
-    - What to do with bad channels? and issues with labels from files with unclear names of result files?
-    
-    - Frequency analysis?
-'''
-
-
-def calculate_mean_decoding_accuracy(test: bool = False):
+def preprocess_train_data(epochs_list: List[np.ndarray[float]], subsampling_rate: int = 1) -> np.ndarray[float]:
     """
-    Outermost method. Calls function to load, process and decode data (once per subject).
-    :param test: if True, does not store processed data and decodes only a small number of subjects.
-    :return: None
-    """
-    if not test:
-        os.makedirs('data/{}'.format(DATE_TIME), exist_ok=True)
-
-    subject_ids = get_subject_ids(epoched_data_path)
-
-    # 'test' being True makes the code run on only a few subjects
-    if test:
-        subject_ids = np.random.choice(subject_ids, 8)
-
-    accuracies = []
-
-    for subject_id in subject_ids:
-        epochs_list, labels_list = load_subject_train_data(subject_id)
-        proc_epochs, proc_labels = preprocess_train_data(epochs_list, labels_list, subject_id,
-                                                         subsampling_rate=5, test=test)
-        print("\n---------------------------\nLOGGER: Decoding subject #{}\n---------------------------\n".format(
-            subject_id))
-        acc = decode_subject_response_over_time(proc_epochs, proc_labels)
-
-        accuracies.append(acc)
-
-    accuracies = np.array(accuracies)
-
-    if not test:
-        np.save('results/mvpa_accuracies_{}.npy'.format(DATE_TIME), accuracies)
-
-    plot_accuracies(data=accuracies)
-
-
-def decode_subject_response_over_time(proc_epochs: np.ndarray, proc_labels: np.ndarray) -> np.ndarray:
-    """
-    Decodes data from one subject.
-    :param proc_epochs: already processed (scaled, baseline subtracted) epochs.
-    :param proc_labels: labels (NaN and corresponding epochs already removed).
-    :return: array of decoding accuracies, one per time point in the data.
-    """
-    subject_accuracies = []
-
-    for t in range(proc_epochs.shape[-1]):
-        clf = svm.SVC(kernel='linear', C=1, random_state=42)
-        scores = cross_val_score(clf, proc_epochs[:, :, t], proc_labels, cv=5)
-        subject_accuracies.append(np.mean(scores))
-
-    return np.array(subject_accuracies)
-
-
-def preprocess_train_data(epochs_list: List[EpochsFIF],
-                          labels_list: List[List[int]],
-                          subject_id: int,
-                          subsampling_rate: int = 1,
-                          test: bool = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Preprocessed training data. Removes NaN labels (and corresponding epochs),
-    subtracts baseline (mean activation before stimulus onset) from each epoch independently,
-    scales channels (over all epochs),
+    Preprocesses training data.
+    Scales channels (each block independently),
     performs PCA retaining 99% of variance (over all epochs).
-    :param epochs_list: list of mne.Epochs objects.
-    :param labels_list: list of labels (subject choice at corresponding epoch).
-    :param subject_id:
+    :param epochs_list: list of numpy arrays containing epoch data.
+             Each array in the list has shape (#epochs x #channels x #timesteps).
     :param subsampling_rate: number of samples that are collapsed into one by averaging.
-    :param test: if True, does not store processed data.
-    :return: 3D numpy array of processed epoch data (of shape #epochs x #pca_components x #timesteps)
-             numpy array of labels
+    :return: numpy array of concatenated processed epoch data (of shape #epochs x #pca_components x #timesteps)
     """
     '''
     For now things like scaling and PCA are calculated on complete data.
@@ -118,16 +34,10 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
        run it once for each fold.
     '''
     proc_epochs = []
-    labels_filtered = []
 
     # This loop rescales the data one experiment block at a time. This is because baseline channel activation
     # varies a lot between blocks, but channel activation varies on a much smaller scale inside a block.
-    for epochs, labels in zip(epochs_list, labels_list):
-        data = epochs.get_data()
-
-        data = data[~np.isnan(labels)]
-        labels_filtered.extend(labels[~np.isnan(labels)])
-
+    for data in epochs_list:
         num_epochs, num_channels, num_timesteps = data.shape
 
         # SUBSAMPLE from 1000 Hz to (1000 / subsampling_rate) Hz
@@ -135,9 +45,6 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
         data = np.reshape(data[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // subsampling_rate,
                                                  subsampling_rate))
         data = np.mean(data, axis=-1)
-
-        # SUBTRACT MEAN from the 1000ms before stimulus presentation as a baseline
-        data -= np.mean(data[:, :, :1000 // subsampling_rate], axis=2)[:, :, np.newaxis]
 
         # SCALE
         scaler = StandardScaler()
@@ -151,15 +58,10 @@ def preprocess_train_data(epochs_list: List[EpochsFIF],
     pca = PCA(n_components=0.99, svd_solver='full')  # switching svd_solver to 'auto' might increase performance
     proc_epochs = reshape_transform_reshape(data=proc_epochs, func=pca.fit_transform)
 
-    labels_filtered = np.array(labels_filtered)
-
-    if not test:
-        np.save('data/{}/processed_epochs_{}.npy'.format(DATE_TIME, subject_id), proc_epochs)
-
-    return proc_epochs, labels_filtered
+    return proc_epochs
 
 
-def reshape_transform_reshape(data: np.ndarray, func: Callable) -> np.ndarray:
+def reshape_transform_reshape(data: np.ndarray[float], func: Callable) -> np.ndarray:
     """
     Transposes and reshapes data such that features are at the last dimension, performs a transformation,
     then reshapes and transposes back.
@@ -183,12 +85,13 @@ def reshape_transform_reshape(data: np.ndarray, func: Callable) -> np.ndarray:
     return data
 
 
-def load_subject_train_data(subject_id: int) -> Tuple[List[EpochsFIF], List[np.ndarray[int]]]:
+def load_subject_train_data(subject_id: int) -> Tuple[List[np.ndarray[float]], List[np.ndarray[int]]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
+    Applies baseline and drops NaN labels.
     :param subject_id:
-    :return: list of mne.Epoch objects (one per experiment block)
-             corresponding list of labels
+    :return: list of numpy arrays containing epoch data (one per experiment block),
+             list of numpy arrays with corresponding labels
     """
     epochs_dict = load_subject_epochs(subject_id)
     results_df = load_subject_labels(subject_id)
@@ -198,12 +101,17 @@ def load_subject_train_data(subject_id: int) -> Tuple[List[EpochsFIF], List[np.n
 
     for block in epochs_dict.keys():
         epochs = epochs_dict[block]
+        epochs = epochs.apply_baseline((-1.000, -0.001))
         labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
 
-        selected_labels = labels.loc[epochs.selection]
+        # select labels for which the corresponding epoch was accepted
+        selected_labels = np.array(labels.loc[epochs.selection])
 
-        epochs_list.append(epochs)
-        labels_list.append(np.array(selected_labels))
+        data = epochs.get_data()
+
+        # drop NaN labels and corresponding epochs
+        epochs_list.append(data[~np.isnan(selected_labels)])
+        labels_list.append(selected_labels[~np.isnan(selected_labels)])
 
     return epochs_list, labels_list
 
@@ -292,41 +200,3 @@ def get_subject_ids(path: str) -> np.ndarray:
     # subject_ids.remove(137)
 
     return np.array(subject_ids)
-
-
-def plot_accuracies(data: np.ndarray = None, path: str = None) -> None:
-    """
-    Plots the mean accuracy over time with confidence band over subjects.
-    :param data: 2D numpy array, where each row is the decoding accuracy for one subject over all timesteps.
-    :param path: if data is None, this path indicates what file to load the data from.
-    :return: None
-    """
-    if data is None:
-        data = np.load(path)
-
-    df = pd.DataFrame(data=data.T)
-    df = df.reset_index().rename(columns={'index': 'Time'})
-    df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
-
-    # Create a seaborn lineplot, passing the matrix directly to seaborn
-    plt.figure(figsize=(10, 6))  # Optional: Set the figure size
-
-    # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=df, x='Time', y='Mean_Accuracy', errorbar='sd')
-
-    # Set plot labels and title
-    plt.xlabel('Time (samples)')
-    plt.ylabel('Mean Accuracy')
-    plt.title('Mean Accuracy with Confidence Intervals')
-
-    if path is None:
-        plt.savefig('results/mean_accuracies_{}.png'.format(DATE_TIME))
-
-    # Show the plot
-    plt.show()
-
-
-if __name__ == '__main__':
-    calculate_mean_decoding_accuracy()
-
-    # plot_accuracies(path='/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/mvpa_accuracies_D2024-10-03_T16-50-01.npy')
