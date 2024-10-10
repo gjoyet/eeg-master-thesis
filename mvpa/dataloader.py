@@ -48,7 +48,7 @@ def average_augment_data(epochs: np.ndarray[float],
 
             # Step 3: Take the mean over dimension 1 (e.g. epochs inside a partition)
             pseudo_epochs.append(partition_averages)
-            pseudo_labels.extend(np.full(partition_averages.shape[0], lab))
+            pseudo_labels.extend(np.full(partition_averages.shape[0], lab))  # TODO: check extend works with np.ndarray
 
     pseudo_epochs = np.concat(pseudo_epochs, axis=0)
     pseudo_labels = np.array(pseudo_labels)
@@ -88,9 +88,10 @@ def preprocess_train_data(epochs_list: List[np.ndarray[float]], subsampling_rate
 
         # SUBSAMPLE from 1000 Hz to (1000 / subsampling_rate) Hz
         # Ignore first time-step since there are 2251 time-steps, which is not easily divisible.
-        data = np.reshape(data[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // subsampling_rate,
-                                                 subsampling_rate))
-        data = np.mean(data, axis=-1)
+        if subsampling_rate > 1:
+            data = np.reshape(data[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // subsampling_rate,
+                                                    subsampling_rate))
+            data = np.mean(data, axis=-1)
 
         # SCALE
         scaler = StandardScaler()

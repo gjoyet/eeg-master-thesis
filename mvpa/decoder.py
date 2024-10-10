@@ -1,3 +1,4 @@
+import argparse
 import os.path
 
 import numpy as np
@@ -41,17 +42,27 @@ TODOS:
 '''
 
 
-def calculate_mean_decoding_accuracy(test: bool = False):
+def calculate_mean_decoding_accuracy():
     """
     Outermost method. Calls function to load, process and decode data (once per subject).
-    :param test: if True, decodes only a small number of subjects.
+    Arguments are passed from command line.
     :return: None
     """
-    subsampling_rate = 5
-    pseudo_k = 4
-    augment_factor = 2
-    C = 2.5
-    window_width = 1
+    test = args.test
+    subsampling_rate = args.subsampling_rate
+    pseudo_k = args.pseudo_k
+    augment_factor = args.augment_factor
+    C = args.SVM_C
+    window_width = args.SVM_window_width
+
+    print("\n-----------------------------------------------------------------------\n",
+          "LOGGER: STARTING RUN WITH PARAMETERS:\n",
+          "{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}\n".format(1000/subsampling_rate,
+                                                                                          pseudo_k,
+                                                                                          augment_factor,
+                                                                                          C,
+                                                                                          window_width),
+          "-----------------------------------------------------------------------\n", sep="")
 
     subject_ids = get_subject_ids(epoched_data_path)
 
@@ -67,10 +78,13 @@ def calculate_mean_decoding_accuracy(test: bool = False):
         proc_labels = np.concat(labels_list, axis=0)
 
         # TODO: debug this. Does it make sense to do this after PCA? (probably not)
-        proc_epochs, proc_labels = average_augment_data(proc_epochs, proc_labels, pseudo_k=pseudo_k, augment_factor=augment_factor)
+        if pseudo_k > 1:
+            proc_epochs, proc_labels = average_augment_data(proc_epochs, proc_labels,
+                                                            pseudo_k=pseudo_k,
+                                                            augment_factor=augment_factor)
 
-        print("\n---------------------------\nLOGGER: Decoding subject #{}\n---------------------------\n".format(
-            subject_id))
+        print("\n-----------------------------\nLOGGER: Decoding subject #{:03d}\n".format(subject_id),
+              "-----------------------------\n", sep="")
         acc = decode_subject_response_over_time(proc_epochs, proc_labels, C=C, window_width=window_width)
 
         accuracies.append(acc)
@@ -78,13 +92,14 @@ def calculate_mean_decoding_accuracy(test: bool = False):
     accuracies = np.array(accuracies)
 
     if not test:
-        np.save('results/mvpa_acc_{}Hz_{}-av_{}-aug_{}-C_{}-win.png'.format(1000/subsampling_rate,
-                                                                            pseudo_k,
-                                                                            augment_factor,
-                                                                            C*1000,
-                                                                            window_width), accuracies)
+        np.save('results/data/mvpa_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.png'.format(int(1000/subsampling_rate),
+                                                                                 pseudo_k,
+                                                                                 augment_factor,
+                                                                                 int(C*1000),
+                                                                                 window_width), accuracies)
 
-    plot_accuracies(data=accuracies)
+    plot_accuracies(data=accuracies, subsampling_rate=subsampling_rate, pseudo_k=pseudo_k,
+                    augment_factor=augment_factor, C=C, window_width=window_width)
 
 
 def decode_subject_response_over_time(proc_epochs: np.ndarray[float],
@@ -104,7 +119,7 @@ def decode_subject_response_over_time(proc_epochs: np.ndarray[float],
     num_epochs = proc_epochs.shape[0]
 
     for t in range(proc_epochs.shape[-1] - window_width + 1):
-        clf = svm.SVC(kernel='linear', C=C)
+        clf = svm.SVC(kernel='linear', C=C, class_weight='balanced')
         scores = cross_val_score(clf, np.reshape(proc_epochs[:, :, t:t+window_width], shape=(num_epochs, -1)),
                                  proc_labels, cv=5)
         subject_accuracies.append(np.mean(scores))
@@ -149,10 +164,10 @@ def plot_accuracies(data: np.ndarray = None, path: str = None, subsampling_rate:
                                                                                             window_width))
 
     if path is None:
-        plt.savefig('results/mean_acc_{}Hz_{}-av_{}-aug_{}-C_{}-win.png'.format(1000/subsampling_rate,
+        plt.savefig('results/mean_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.png'.format(int(1000/subsampling_rate),
                                                                                 pseudo_k,
                                                                                 augment_factor,
-                                                                                C*1000,
+                                                                                int(C*1000),
                                                                                 window_width))
 
     # Show the plot
@@ -160,7 +175,42 @@ def plot_accuracies(data: np.ndarray = None, path: str = None, subsampling_rate:
 
 
 if __name__ == '__main__':
-    calculate_mean_decoding_accuracy(test=False)
+    parser = argparse.ArgumentParser()
+
+    # Input Arguments
+
+    parser.add_argument('--test',
+                        action='store_true',
+                        help='Activate test mode')
+
+    parser.add_argument('--subsampling_rate',
+                        default=5,
+                        type=int,
+                        required=False)
+
+    parser.add_argument('--pseudo_k',
+                        default=1,
+                        type=int,
+                        required=False)
+
+    parser.add_argument('--augment_factor',
+                        default=1,
+                        type=int,
+                        required=False)
+
+    parser.add_argument('--SVM_C',
+                        default=1,
+                        type=float,
+                        required=False)
+
+    parser.add_argument('--SVM_window_width',
+                        default=1,
+                        type=int,
+                        required=False)
+
+    args = parser.parse_args()
+
+    calculate_mean_decoding_accuracy()
 
     # plot_accuracies(path='/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/data/mvpa_accuracies_D2024-10-07_T14-26-14.npy')
     # plot_accuracies(path='/Users/joyet/Documents/Documents - Guillaume’s MacBook Pro/UniBasel/MSc_Data_Science/Master Thesis/Code/eeg-master-thesis/mvpa/results/data/mvpa_accuracies_D2024-10-09_T17-06-55.npy')
