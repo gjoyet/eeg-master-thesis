@@ -16,14 +16,14 @@ behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
 def average_augment_data(epochs: np.ndarray[float],
                          labels: np.ndarray[int],
-                         k: int = 4,
+                         pseudo_k: int = 4,
                          augment_factor: int = 1) -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Randomly averages trials with same label to create pseudo-trials. Optionally augments data by averaging the
     data several times in different partitions, i.e. each trials is used for several pseudo-trials.
     :param epochs: original epoch data.
     :param labels: original labels.
-    :param k: number of trials to be averaged per pseudo-trial.
+    :param pseudo_k: number of trials to be averaged per pseudo-trial.
     :param augment_factor: number of pseudo-trials each original trial will be in.
     :return: numpy array with pseudo-trials (of shape #pseudo-epochs x #channels x #timesteps),
              numpy array with corresponding labels.
@@ -36,7 +36,7 @@ def average_augment_data(epochs: np.ndarray[float],
         side_epochs = epochs[labels == lab]
 
         # n is the number of partitions, and k is the number of samples per partition
-        n = side_epochs.shape[0] // k
+        n = side_epochs.shape[0] // pseudo_k
 
         for _ in range(augment_factor):
             # Step 1: Shuffle the data along the first dimension
