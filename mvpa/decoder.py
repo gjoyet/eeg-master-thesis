@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data, average_augment_data
 
 
-epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
+epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
 
@@ -58,7 +58,7 @@ def calculate_mean_decoding_accuracy():
                                                                                           window_width),
           "-----------------------------------------------------------------------\n", sep="")
 
-    subject_ids = get_subject_ids(epoched_data_path)
+    subject_ids = get_subject_ids(epoch_data_path)
 
     # 'test' being True makes the code run on only a few subjects
     if test:
@@ -68,7 +68,9 @@ def calculate_mean_decoding_accuracy():
 
     # Loop loads, processes and decodes data one subject at a time
     for subject_id in subject_ids:
-        epochs, labels = load_subject_train_data(subject_id)
+        epochs, labels = load_subject_train_data(subject_id,
+                                                 epoch_data_path=epoch_data_path,
+                                                 behav_data_path=behav_data_path)
         proc_epochs = preprocess_train_data(epochs, downsample_factor=downsample_factor, perform_PCA=perform_PCA)
 
         # TODO: debug this. Does it make sense to do this after PCA? (probably not)

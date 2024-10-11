@@ -11,10 +11,6 @@ from sklearn.decomposition import PCA
 from mne.epochs import EpochsFIF
 
 
-epoched_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
-
-
 def average_augment_data(epochs: np.ndarray[float],
                          labels: np.ndarray[int],
                          pseudo_k: int = 4,
@@ -113,16 +109,20 @@ def preprocess_train_data(data: np.ndarray[float],
     return data
 
 
-def load_subject_train_data(subject_id: int) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+def load_subject_train_data(subject_id: int,
+                            epoch_data_path: str,
+                            behav_data_path: str) -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
     Applies baseline and drops NaN labels.
     :param subject_id:
+    :param epoch_data_path: path to epoch data.
+    :param behav_data_path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
     :return: numpy array containing epoch data (of shape #epochs x #channels x #timesteps),
              numpy array with corresponding labels (of length #epochs).
     """
-    epochs_dict = load_subject_epochs(subject_id)
-    results_df = load_subject_labels(subject_id)
+    epochs_dict = load_subject_epochs(epoch_data_path, subject_id)
+    results_df = load_subject_labels(behav_data_path, subject_id)
 
     epochs_list = []
     labels_list = []
@@ -147,18 +147,19 @@ def load_subject_train_data(subject_id: int) -> Tuple[np.ndarray[float], np.ndar
     return epochs, labels
 
 
-def load_subject_epochs(subject_id: int) -> Dict[int, EpochsFIF]:
+def load_subject_epochs(path: str, subject_id: int) -> Dict[int, EpochsFIF]:
     """
     Loads epoch data for one subject.
+    :param path: path to epoch data.
     :param subject_id:
     :return: dict, keys are experiment block numbers, values are a mne.EpochsFIF object for the corresponding block.
     """
-    filenames = os.listdir(epoched_data_path)
+    filenames = os.listdir(path)
 
     all_epochs = {}
 
     for fname in filter(lambda k: '_sj{}_'.format(subject_id) in k, filenames):
-        epochs = mne.read_epochs(os.path.join(epoched_data_path, fname))
+        epochs = mne.read_epochs(os.path.join(path, fname))
         pattern = r"_block(\d)_"
         match = re.search(pattern, fname)
         block = int(match.group(1))
@@ -167,14 +168,15 @@ def load_subject_epochs(subject_id: int) -> Dict[int, EpochsFIF]:
     return all_epochs
 
 
-def load_subject_labels(subject_id: int) -> pd.DataFrame:
+def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     """
     Loads labels (behavioural outcomes) for one subject.
+    :param path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
     :param subject_id:
     :return: a pandas dataframe containing subject response and
              block number ('run') for subsequent join with epoch data.
     """
-    subdirectory_content = os.listdir(os.path.join(behav_data_path, str(subject_id)))
+    subdirectory_content = os.listdir(os.path.join(path, str(subject_id)))
 
     cols = ['session', 'run', 'response', 'confidence', 'correct']
     dfs = []
@@ -182,7 +184,7 @@ def load_subject_labels(subject_id: int) -> pd.DataFrame:
     # TODO: correct criteria for .csv selection
     for filename in filter(lambda k: ('results.csv' in k and 'assr' not in k and 'wrong' not in k),
                            subdirectory_content):
-        data = pd.read_csv(os.path.join(behav_data_path, str(subject_id), filename), usecols=cols)
+        data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
         dfs.append(data)
 
     combined_df = pd.concat(dfs, ignore_index=True)
@@ -217,10 +219,13 @@ def get_subject_ids(path: str) -> np.ndarray:
     # The removals below are just to allow testing: the issues need to be fixed.
 
     # TODO: check what is up with those result files (several blocks with same number)
-    subject_ids.remove(9)
-    subject_ids.remove(18)
-    subject_ids.remove(34)
-    subject_ids.remove(117)
+    try:
+        subject_ids.remove(9)
+        subject_ids.remove(18)
+        subject_ids.remove(34)
+        subject_ids.remove(117)
+    except ValueError:
+        pass
 
     # TODO: subjects with discrepant bad channels
     # subject_ids.remove(13)
