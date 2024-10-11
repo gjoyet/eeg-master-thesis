@@ -13,10 +13,8 @@ import matplotlib.pyplot as plt
 
 from dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data, average_augment_data
 
-
 epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
-
 
 '''
 TODOS:
@@ -49,14 +47,16 @@ def calculate_mean_decoding_accuracy():
     C = args.SVM_C
     window_width = args.SVM_window_width
 
-    print("\n-----------------------------------------------------------------------\n",
+    print("\n--------------------------------------------------------------------------------\n",
           "LOGGER: STARTING RUN WITH PARAMETERS:\n",
-          "{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}\n".format(1000 / downsample_factor,
-                                                                                          pseudo_k,
-                                                                                          augment_factor,
-                                                                                          C,
-                                                                                          window_width),
-          "-----------------------------------------------------------------------\n", sep="")
+          "{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {} / PCA: {}\n".format(
+              1000 / downsample_factor,
+              pseudo_k,
+              augment_factor,
+              C,
+              window_width,
+              "Yes" if perform_PCA else "No"),
+          "--------------------------------------------------------------------------------\n", sep="")
 
     subject_ids = get_subject_ids(epoch_data_path)
 
@@ -71,9 +71,9 @@ def calculate_mean_decoding_accuracy():
         epochs, labels = load_subject_train_data(subject_id,
                                                  epoch_data_path=epoch_data_path,
                                                  behav_data_path=behav_data_path)
+
         proc_epochs = preprocess_train_data(epochs, downsample_factor=downsample_factor, perform_PCA=perform_PCA)
 
-        # TODO: debug this. Does it make sense to do this after PCA? (probably not)
         if pseudo_k > 1:
             proc_epochs, labels = average_augment_data(proc_epochs, labels,
                                                        pseudo_k=pseudo_k,
@@ -82,6 +82,7 @@ def calculate_mean_decoding_accuracy():
         print("\n-----------------------------\n",
               "LOGGER: Decoding subject #{:03d}\n".format(subject_id),
               "-----------------------------\n", sep="")
+
         acc = decode_subject_response_over_time(proc_epochs, labels, C=C, window_width=window_width)
 
         accuracies.append(acc)
@@ -89,14 +90,16 @@ def calculate_mean_decoding_accuracy():
     accuracies = np.array(accuracies)
 
     if not test:
-        np.save('results/data/mvpa_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.npy'.format(int(1000 / downsample_factor),
-                                                                                 pseudo_k,
-                                                                                 augment_factor,
-                                                                                 int(C * 1000),
-                                                                                 window_width), accuracies)
+        np.save('results/data/mvpa_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}{}.npy'.format(int(1000 / downsample_factor),
+                                                                                   pseudo_k,
+                                                                                   augment_factor,
+                                                                                   int(C * 1000),
+                                                                                   window_width,
+                                                                                   "_PCA" if perform_PCA else ""),
+                accuracies)
 
     plot_accuracies(data=accuracies, downsample_factor=downsample_factor, pseudo_k=pseudo_k,
-                    augment_factor=augment_factor, C=C, window_width=window_width)
+                    augment_factor=augment_factor, C=C, window_width=window_width, perform_PCA=perform_PCA)
 
 
 def decode_subject_response_over_time(proc_epochs: np.ndarray[float],
@@ -126,7 +129,8 @@ def decode_subject_response_over_time(proc_epochs: np.ndarray[float],
 
 
 def plot_accuracies(data: np.ndarray = None, path: str = None, downsample_factor: int = 5,
-                    pseudo_k: int = 4, augment_factor: int = 1, C: int = 1, window_width: int = 1) -> None:
+                    pseudo_k: int = 4, augment_factor: int = 1, C: int = 1,
+                    window_width: int = 1, perform_PCA: bool = False) -> None:
     """
     Plots the mean accuracy over time with confidence band over subjects.
     :param data: 2D numpy array, where each row is the decoding accuracy for one subject over all timesteps.
@@ -137,6 +141,7 @@ def plot_accuracies(data: np.ndarray = None, path: str = None, downsample_factor
     :param augment_factor:
     :param C:
     :param window_width:
+    :param perform_PCA:
     :return: None
     """
     if data is None:
@@ -160,19 +165,21 @@ def plot_accuracies(data: np.ndarray = None, path: str = None, downsample_factor
     plt.xlabel('Time (ms)')
     plt.ylabel('Accuracy')
     plt.legend()
-    plt.title(
-        '{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}'.format(int(1000 / downsample_factor),
-                                                                                      pseudo_k,
-                                                                                      augment_factor,
-                                                                                      C,
-                                                                                      window_width))
+    plt.title('{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {} / PCA: {}'.format(
+        int(1000 / downsample_factor),
+        pseudo_k,
+        augment_factor,
+        C,
+        window_width,
+        "Yes" if perform_PCA else "No"))
 
     if path is None:
-        plt.savefig('results/mean_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.png'.format(int(1000 / downsample_factor),
-                                                                                pseudo_k,
-                                                                                augment_factor,
-                                                                                int(C * 1000),
-                                                                                window_width))
+        plt.savefig('results/mean_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}{}.png'.format(int(1000 / downsample_factor),
+                                                                                  pseudo_k,
+                                                                                  augment_factor,
+                                                                                  int(C * 1000),
+                                                                                  window_width,
+                                                                                  "_PCA" if perform_PCA else ""))
 
     # Show the plot
     plt.show()

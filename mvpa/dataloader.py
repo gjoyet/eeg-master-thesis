@@ -18,13 +18,14 @@ def average_augment_data(epochs: np.ndarray[float],
     """
     Randomly averages trials with same label to create pseudo-trials. Optionally augments data by averaging the
     data several times in different partitions, i.e. each trials is used for several pseudo-trials.
-    :param epochs: original epoch data.
-    :param labels: original labels.
+    :param epochs: numpy array of original epoch data (of shape #epochs x #channels x #timesteps).
+    :param labels: numpy array of original labels.
     :param pseudo_k: number of trials to be averaged per pseudo-trial.
     :param augment_factor: number of pseudo-trials each original trial will be in.
     :return: numpy array with pseudo-trials (of shape #pseudo-epochs x #channels x #timesteps),
              numpy array with corresponding labels.
     """
+    # TODO: debug this.
 
     pseudo_epochs = []
     pseudo_labels = []
@@ -45,7 +46,7 @@ def average_augment_data(epochs: np.ndarray[float],
 
             # Step 3: Take the mean over epochs in each partition
             pseudo_epochs.append(partition_averages)
-            pseudo_labels.extend(np.full(partition_averages.shape[0], lab))  # TODO: check extend works with np.ndarray
+            pseudo_labels.extend(np.full(partition_averages.shape[0], lab))
 
     pseudo_epochs = np.concat(pseudo_epochs, axis=0)
     pseudo_labels = np.array(pseudo_labels)
@@ -64,7 +65,7 @@ def preprocess_train_data(data: np.ndarray[float],
     """
     Preprocesses training data.
     Downsamples, scales channels, optionally performs PCA retaining 99% of variance.
-    :param data: numpy arrays containing epoch data (of shape #epochs x #channels x #timesteps).
+    :param data: numpy arrays of epoch data (of shape #epochs x #channels x #timesteps).
     :param downsample_factor: number of samples that are collapsed into one by averaging.
     :param perform_PCA: if True, PCA is performed on the data.
     :return: numpy array of processed epoch data (of shape #epochs x #channels x #timesteps).
@@ -182,7 +183,10 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     dfs = []
 
     # TODO: correct criteria for .csv selection
-    for filename in filter(lambda k: ('results.csv' in k and 'assr' not in k and 'wrong' not in k),
+    for filename in filter(lambda k: ('{}_'.format(subject_id) in k and
+                                      'results.csv' in k and
+                                      'assr' not in k and
+                                      'wrong' not in k),
                            subdirectory_content):
         data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
         dfs.append(data)
