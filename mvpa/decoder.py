@@ -87,7 +87,7 @@ def calculate_mean_decoding_accuracy():
     accuracies = np.array(accuracies)
 
     if not test:
-        np.save('results/data/mvpa_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.png'.format(int(1000 / downsample_factor),
+        np.save('results/data/mvpa_acc_{}Hz_av-{}_aug-{}_C-{}_win-{}.npy'.format(int(1000 / downsample_factor),
                                                                                  pseudo_k,
                                                                                  augment_factor,
                                                                                  int(C * 1000),
@@ -148,11 +148,16 @@ def plot_accuracies(data: np.ndarray = None, path: str = None, downsample_factor
     plt.figure(figsize=(10, 6))  # Optional: Set the figure size
 
     # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=df, x=df['Time'] * downsample_factor - 1000, y='Mean_Accuracy', errorbar='sd')
+    sns.lineplot(data=df, x=df['Time'] * downsample_factor - 1000, y='Mean_Accuracy', errorbar='sd', label='Accuracy')
+    sns.despine()
+
+    plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
+    plt.axvline(x=0, ymin=0, ymax=0.05, color='black', linewidth=1, label='Stimulus Onset')
 
     # Set plot labels and title
-    plt.xlabel('Time (samples)')
-    plt.ylabel('Mean Accuracy')
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Accuracy')
+    plt.legend()
     plt.title(
         '{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}'.format(int(1000 / downsample_factor),
                                                                                       pseudo_k,
