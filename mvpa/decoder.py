@@ -1,4 +1,5 @@
 import argparse
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ matplotlib.use('macOSX')
 import matplotlib.pyplot as plt
 
 from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data
+from utils.logger import log
 
 epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
@@ -33,29 +35,13 @@ def calculate_mean_decoding_accuracy():
     Arguments are passed from command line.
     :return: None
     """
-    downsample_factor = args.downsample_factor
-    pseudo_k = args.pseudo_k
-    augment_factor = args.augment_factor
-    C = args.SVM_C
-    window_width = args.SVM_window_width
+    title, filename = get_plot_title(args.downsample_factor,
+                                     args.pseudo_k,
+                                     args.augment_factor,
+                                     args.SVM_C,
+                                     args.SVM_window_width)
 
-    title = '{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}'.format(
-        int(1000 / downsample_factor),
-        pseudo_k,
-        augment_factor,
-        C,
-        window_width)
-
-    filename = 'accuracy_{}Hz_av-{}_aug-{}_C-{}_win-{}'.format(int(1000 / downsample_factor),
-                                                               pseudo_k,
-                                                               augment_factor,
-                                                               int(C * 1000),
-                                                               window_width)
-
-    print("\n--------------------------------------------------------------------------------\n",
-          "LOGGER: STARTING RUN WITH PARAMETERS:\n",
-          title,
-          "--------------------------------------------------------------------------------\n", sep="")
+    log(title)
 
     subject_ids = get_subject_ids(epoch_data_path)
 
@@ -66,18 +52,16 @@ def calculate_mean_decoding_accuracy():
         epochs, labels = load_subject_train_data(subject_id,
                                                  epoch_data_path=epoch_data_path,
                                                  behav_data_path=behav_data_path,
-                                                 downsample_factor=downsample_factor)
+                                                 downsample_factor=args.downsample_factor)
 
-        if pseudo_k > 1:
+        if args.pseudo_k > 1:
             epochs, labels = average_augment_data(epochs, labels,
-                                                  pseudo_k=pseudo_k,
-                                                  augment_factor=augment_factor)
+                                                  pseudo_k=args.pseudo_k,
+                                                  augment_factor=args.augment_factor)
 
-        print("\n-----------------------------\n",
-              "LOGGER: Decoding subject #{:03d}\n".format(subject_id),
-              "-----------------------------\n", sep="")
+        log('Decoding subject #{:03d}'.format(subject_id))
 
-        acc = decode_response_over_time(epochs, labels, C=C, window_width=window_width)
+        acc = decode_response_over_time(epochs, labels, C=args.SVM_C, window_width=args.SVM_window_width)
 
         accuracies.append(acc)
 
@@ -151,6 +135,32 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
 
     # Show the plot
     plt.show()
+
+
+def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width) -> Tuple[str, str]:
+    """
+    Takes MVPA hyperparameters as arguments and returns plot title and file name.
+    :param downsample_factor:
+    :param pseudo_k:
+    :param augment_factor:
+    :param C:
+    :param window_width:
+    :return: title and file name for accuracy plot.
+    """
+    title = '{} Hz / {}-fold average / {}-fold augment / SVM: C = {}, window = {}'.format(
+        int(1000 / downsample_factor),
+        pseudo_k,
+        augment_factor,
+        C,
+        window_width)
+
+    filename = 'accuracy_{}Hz_av-{}_aug-{}_C-{}_win-{}'.format(int(1000 / downsample_factor),
+                                                               pseudo_k,
+                                                               augment_factor,
+                                                               int(C * 1000),
+                                                               window_width)
+
+    return title, filename
 
 
 if __name__ == '__main__':
