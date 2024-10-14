@@ -96,8 +96,7 @@ def psychophysical_kernel_glm() -> pd.DataFrame:
         df = df.dropna(subset=['response'])
 
         for sample in range(1, 11):
-            df['cd_{}'.format(sample)] = df['contrast_right_{}'.format(sample)] - \
-                                         df['contrast_left_{}'.format(sample)]
+            df['cd_{}'.format(sample)] = df['contrast_right_{}'.format(sample)] - df['contrast_left_{}'.format(sample)]
 
         for stimulus_category in [-1, 1]:
             df_oi = df[df['side'] == stimulus_category]

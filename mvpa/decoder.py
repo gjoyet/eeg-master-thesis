@@ -11,10 +11,12 @@ import matplotlib
 matplotlib.use('macOSX')
 import matplotlib.pyplot as plt
 
-from dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data, average_augment_data
+from utils.dataloader import get_subject_ids, load_subject_train_data, preprocess_train_data, average_augment_data
+
 
 epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
+
 
 '''
 TODOS:
