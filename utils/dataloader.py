@@ -18,11 +18,11 @@ def average_augment_data(epochs: np.ndarray[float],
     """
     Randomly averages trials with same label to create pseudo-trials. Optionally augments data by averaging the
     data several times in different partitions, i.e. each trials is used for several pseudo-trials.
-    :param epochs: numpy array of original epoch data (of shape #epochs x #channels x #timesteps).
+    :param epochs: numpy array of original epoch data (of shape #epochs x #timesteps x #channels).
     :param labels: numpy array of original labels.
     :param pseudo_k: number of trials to be averaged per pseudo-trial.
     :param augment_factor: number of pseudo-trials each original trial will be in.
-    :return: numpy array with pseudo-trials (of shape #pseudo-epochs x #channels x #timesteps),
+    :return: numpy array with pseudo-trials (of shape #pseudo-epochs x #timesteps x #channels),
              numpy array with corresponding labels.
     """
     # TODO: debug this.
@@ -59,67 +59,18 @@ def average_augment_data(epochs: np.ndarray[float],
     return pseudo_epochs, pseudo_labels
 
 
-def preprocess_train_data(data: np.ndarray[float], 
-                          downsample_factor: int = 1, 
-                          perform_PCA: bool = False) -> np.ndarray[float]:
-    """
-    Preprocesses training data.
-    Downsamples, scales channels, optionally performs PCA retaining 99% of variance.
-    :param data: numpy arrays of epoch data (of shape #epochs x #channels x #timesteps).
-    :param downsample_factor: number of samples that are collapsed into one by averaging.
-    :param perform_PCA: if True, PCA is performed on the data.
-    :return: numpy array of processed epoch data (of shape #epochs x #channels x #timesteps).
-    """
-    '''
-    For now things like scaling and PCA are calculated on complete data.
-    If we want to calculate it on train and only apply it on test, we will need to do it differently
-    (since for now train/test splits are computed inside cross_val_scores).
-    -> I could just do my own cross-validation, as the only thing it requires is calculating the
-       indices for the folds (something like random_partition(range()) probably exists) and then
-       run it once for each fold.
-    '''
-
-    num_epochs, num_channels, num_timesteps = data.shape
-
-    # DOWNSAMPLE from 1000 Hz to (1000 / downsample_factor) Hz
-    # Ignore first time-step since there are 2251 time-steps, which is not easily divisible.
-    if downsample_factor > 1:
-        data = np.reshape(data[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // downsample_factor,
-                                                 downsample_factor))
-        data = np.mean(data, axis=-1)
-
-    num_timesteps = data.shape[-1]
-
-    # Transpose and reshape (scaler and PCA expect features (channels) at last dimension)
-    data = np.transpose(data, axes=(0, 2, 1))
-    data = np.reshape(data, shape=(num_epochs * num_timesteps, num_channels))
-
-    # SCALE
-    scaler = StandardScaler()
-    data = scaler.fit_transform(data)
-    
-    if perform_PCA:
-        # PERFORM PCA
-        pca = PCA(n_components=0.99, svd_solver='full')  # switching svd_solver to 'auto' might increase performance
-        data = pca.fit_transform(data)
-
-    # Transpose back
-    data = np.reshape(data, shape=(num_epochs, num_timesteps, -1))
-    data = np.transpose(data, axes=(0, 2, 1))
-    
-    return data
-
-
 def load_subject_train_data(subject_id: int,
                             epoch_data_path: str,
-                            behav_data_path: str) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+                            behav_data_path: str,
+                            downsample_factor: int = 1) -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
-    Applies baseline and drops NaN labels.
+    Applies baseline, drops NaN labels, downsamples.
     :param subject_id:
     :param epoch_data_path: path to epoch data.
     :param behav_data_path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
-    :return: numpy array containing epoch data (of shape #epochs x #channels x #timesteps),
+    :param downsample_factor: number of samples that are collapsed into one by averaging.
+    :return: numpy array containing epoch data (of shape #epochs x #timesteps x #channels),
              numpy array with corresponding labels (of length #epochs).
     """
     epochs_dict = load_subject_epochs(epoch_data_path, subject_id)
@@ -144,6 +95,18 @@ def load_subject_train_data(subject_id: int,
 
     epochs = np.concat(epochs_list, axis=0)
     labels = np.concat(labels_list, axis=0)
+
+    num_epochs, num_channels, num_timesteps = epochs.shape
+
+    # DOWNSAMPLE from 1000 Hz to (1000 / downsample_factor) Hz
+    # Ignore first time-step since there are 2251 time-steps, which is not easily divisible.
+    if downsample_factor > 1:
+        epochs = np.reshape(epochs[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // downsample_factor,
+                                                     downsample_factor))
+        epochs = np.mean(epochs, axis=-1)
+
+    # Transpose to get shape (#epochs x #timesteps x #channels)
+    epochs = np.transpose(epochs, axes=(0, 2, 1))
 
     return epochs, labels
 
