@@ -3,22 +3,23 @@ from typing import Tuple
 
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
-
 import matplotlib
-
-matplotlib.use('macOSX')
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data
 from utils.logger import log
 
+
+matplotlib.use('macOSX')
+
 epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
 behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
+
 
 '''
 TODOS:
@@ -29,7 +30,7 @@ TODOS:
 '''
 
 
-def calculate_mean_decoding_accuracy():
+def init_mvpa():
     """
     Outermost method. Calls function to load, process and decode data (once per subject).
     Arguments are passed from command line.
@@ -69,7 +70,7 @@ def calculate_mean_decoding_accuracy():
 
     np.save('results/data/{}.npy'.format(filename), accuracies)
 
-    plot_accuracies(data=accuracies, title=title, savefile=filename)
+    plot_accuracies(data=accuracies, title=title, savefile=filename, downsample_factor=args.downsample_factor)
 
 
 def decode_response_over_time(epochs: np.ndarray[float],
@@ -77,7 +78,7 @@ def decode_response_over_time(epochs: np.ndarray[float],
                               C: int = 1,
                               window_width: int = 1) -> np.ndarray[float]:
     """
-    Decodes participant's response from epoch data.
+    Decodes response from epoch data. Model: pipeline of scaler and SVM.
     :param epochs: numpy array of epoch data (shape #epochs x #timesteps x #channels).
     :param labels: numpy array of labels (length #epochs).
     :param C: regularisation parameter of SVM.
@@ -154,11 +155,11 @@ def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width)
         C,
         window_width)
 
-    filename = 'accuracy_{}Hz_av-{}_aug-{}_C-{}_win-{}'.format(int(1000 / downsample_factor),
-                                                               pseudo_k,
-                                                               augment_factor,
-                                                               int(C * 1000),
-                                                               window_width)
+    filename = 'mvpa_accuracy_{}Hz_av-{}_aug-{}_C-{}_win-{}'.format(int(1000 / downsample_factor),
+                                                                    pseudo_k,
+                                                                    augment_factor,
+                                                                    int(C * 1000),
+                                                                    window_width)
 
     return title, filename
 
@@ -200,4 +201,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    calculate_mean_decoding_accuracy()
+    init_mvpa()
