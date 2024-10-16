@@ -1,6 +1,6 @@
 import os.path
 import re
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 import mne
 import numpy as np
@@ -49,12 +49,62 @@ def average_augment_data(epochs: np.ndarray[float],
     pseudo_epochs = np.concat(pseudo_epochs, axis=0)
     pseudo_labels = np.array(pseudo_labels)
 
-    # Reshuffle data
+    # Reshuffle data (so not all data with same label are together)
     shuffle_idxs = np.random.permutation(range(len(pseudo_labels)))
     pseudo_epochs = pseudo_epochs[shuffle_idxs]
     pseudo_labels = pseudo_labels[shuffle_idxs]
 
     return pseudo_epochs, pseudo_labels
+
+
+def load_all_train_data(subject_ids: List[int],
+                        epoch_data_path: str,
+                        behav_data_path: str,
+                        downsample_factor: int = 1,
+                        shuffle: bool = True) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+    """
+    Loads data and labels (behavioural outcomes) for all subjects.
+    Loaded data have applied baseline, dropped NaN labels, and have been downsampled.
+    If no stored file exists, loads data from individual files and saves complete data in a file.
+    If file already exists, loads data from there.
+    :param subject_ids:
+    :param epoch_data_path: path to epoch data.
+    :param behav_data_path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
+    :param downsample_factor: number of samples that are collapsed into one by averaging.
+    :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
+    :return: numpy array containing epoch data (of shape #epochs x #timesteps x #channels),
+             numpy array with corresponding labels (of length #epochs).
+    """
+    filename = 'data/training_data.npz'
+    # TODO: load data if available
+    if os.path.isfile(filename):
+        train_data = np.load(filename)
+        epochs = train_data['epochs']
+        labels = train_data['labels']
+        print('Using stored training data.')
+        return epochs, labels
+
+    epoch_list = []
+    label_list = []
+
+    for sid in subject_ids:
+        epochs, labels = load_subject_train_data(sid, epoch_data_path, behav_data_path,
+                                                 downsample_factor=downsample_factor)
+        epoch_list.append(epochs)
+        label_list.append(labels)
+
+    epochs = np.concat(epoch_list, axis=0)
+    labels = np.concat(label_list, axis=0)
+
+    if shuffle:
+        shuffle_idxs = np.random.permutation(range(len(labels)))
+        epochs = epochs[shuffle_idxs]
+        labels = labels[shuffle_idxs]
+
+    # TODO: save data
+    np.savez(filename, epochs=epochs, labels=labels)
+
+    return epochs, labels
 
 
 def load_subject_train_data(subject_id: int,
@@ -79,7 +129,7 @@ def load_subject_train_data(subject_id: int,
 
     for block in epochs_dict.keys():
         epochs = epochs_dict[block]
-        epochs = epochs.apply_baseline((-1.000, -0.001))
+        epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
         labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
 
         # select labels for which the corresponding epoch was accepted
@@ -121,7 +171,7 @@ def load_subject_epochs(path: str, subject_id: int) -> Dict[int, EpochsFIF]:
     all_epochs = {}
 
     for fname in filter(lambda k: '_sj{}_'.format(subject_id) in k, filenames):
-        epochs = mne.read_epochs(os.path.join(path, fname))
+        epochs = mne.read_epochs(os.path.join(path, fname), verbose=False)
         pattern = r"_block(\d)_"
         match = re.search(pattern, fname)
         block = int(match.group(1))
@@ -201,3 +251,21 @@ def get_subject_ids(path: str) -> np.ndarray:
     # subject_ids.remove(137)
 
     return np.array(subject_ids)
+
+
+def get_subject_characteristics(subject_id: int) -> Tuple[str, str]:
+    """
+    Returns subject class (SCZ or HC) and origin (Basel or Berlin) for a given subject.
+    :param subject_id: path to csv file containing participant code.
+    :return: two strings, subject class (SCZ or HC) and origin (Basel or Berlin).
+    """
+    if subject_id < 100:
+        if subject_id < 38:
+            return 'SCZ', 'Berlin'
+        else:
+            return 'SCZ', 'Basel'
+    else:
+        if subject_id < 200:
+            return 'HC', 'Berlin'
+        else:
+            return 'HC', 'Basel'

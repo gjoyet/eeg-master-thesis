@@ -11,21 +11,17 @@ import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data
+from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data, get_subject_characteristics
 from utils.logger import log
 
 
 matplotlib.use('macOSX')
-
 epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behav_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
+behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
 
 '''
 TODOS:
-    - What to do with bad channels? and issues with labels from files with unclear names of result files?
-        -> have a look at data with David.
-
     - Frequency analysis?
 '''
 
@@ -52,7 +48,7 @@ def init_mvpa():
     for subject_id in subject_ids:
         epochs, labels = load_subject_train_data(subject_id,
                                                  epoch_data_path=epoch_data_path,
-                                                 behav_data_path=behav_data_path,
+                                                 behav_data_path=behavioural_data_path,
                                                  downsample_factor=args.downsample_factor)
 
         if args.pseudo_k > 1:
@@ -101,13 +97,14 @@ def decode_response_over_time(epochs: np.ndarray[float],
 
 
 def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = None,
-                    downsample_factor: int = 5) -> None:
+                    downsample_factor: int = 5, washout: int = 0) -> None:
     """
     Plots the mean accuracy over time with confidence band over subjects.
     :param data: 2D numpy array, where each row is the decoding accuracy for one subject over all timesteps.
     :param title: title of the plot.
     :param savefile: file name to save the plot under. If None, no plot is saved.
     :param downsample_factor:
+    :param washout:
     :return: None
     """
 
@@ -119,7 +116,8 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
     plt.figure(figsize=(10, 6))  # Optional: Set the figure size
 
     # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=df, x=df['Time'] * downsample_factor - 1000, y='Mean_Accuracy', errorbar='sd', label='Accuracy')
+    sns.lineplot(data=df, x=(df['Time'] + washout) * downsample_factor - 1000, y='Mean_Accuracy',
+                 errorbar='sd', label='Accuracy')
     sns.despine()
 
     plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
