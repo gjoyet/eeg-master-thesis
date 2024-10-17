@@ -76,7 +76,7 @@ def init_esn():
     filename = 'esn_accuracy'
 
     downsample_factor = 5
-    washout = 100
+    washout = int(500 / downsample_factor)
 
     log('Starting ESN Run')
 

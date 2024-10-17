@@ -60,6 +60,10 @@ def init_mvpa():
 
         acc = decode_response_over_time(epochs, labels, C=args.SVM_C, window_width=args.SVM_window_width)
 
+        # Plot all independently to find problematic subjects
+        # TODO: delete afterwards
+        plot_accuracies(data=acc, title=title, savefile=filename, downsample_factor=args.downsample_factor)
+
         accuracies.append(acc)
 
     accuracies = np.array(accuracies)
