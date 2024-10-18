@@ -11,12 +11,11 @@ from torch.utils.data import Dataset, DataLoader
 
 from mne.epochs import EpochsFIF
 
-
 # Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
 # data of each subject inside a folder named <subject_id>.
-epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
-
+wd = '/Volumes/Guillaume EEG Project'
+epoch_data_path = os.path.join(wd, 'Berlin_Data/EEG/preprocessed/stim_epochs')
+behavioural_data_path = os.path.join(wd, 'Berlin_Data/EEG/raw')
 
 '''
 TODOS:
@@ -51,32 +50,31 @@ class CustomNPZDataset(Dataset):
         return torch.tensor(input_data, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
 
-def get_pytorch_dataloader(subject_ids: List[int],
-                           downsample_factor: int = 1,
+def get_pytorch_dataloader(downsample_factor: int = 1,
+                           scaled: bool = True,
                            shuffle: bool = True) -> torch.utils.data.DataLoader:
     """
     Returns a pytorch dataloader with the complete training data.
     Data have applied baseline, dropped NaN labels, and have been downsampled.
-    Additionally, the data is scaled, which is not done when loading data of subjects individually. This is because
-    the data should be scaled before it is put into a pytorch dataset object. The individual loading of subject data
-    on the other hand is used by MVPA, where sklearn scales the data for each cross-validation fold separately, which
-    is why it should not be scaled beforehand.
-    :param subject_ids:
+    Additionally, the data can be scale scaled.
     :param downsample_factor: number of samples that are collapsed into one by averaging.
+    :param scaled: if True, data is scaled.
     :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
     :return: pytorch dataloader with training data.
     """
-    filename = '../../data/training_data_{}Hz.npz'.format(int(1000 / downsample_factor))
+    filename = os.path.join(wd, 'Data/training_data_{}Hz_{}.npz'.format(int(1000 / downsample_factor),
+                                                                        'scaled' if scaled else ''))
 
     # if file already exists, do nothing
     if not os.path.isfile(filename):
         # else load whole training data and save it in .npz file
+        subject_ids = get_subject_ids()
+
         epoch_list = []
         label_list = []
 
         for sid in subject_ids:
-            epochs, labels = load_subject_train_data(sid, epoch_data_path, behavioural_data_path,
-                                                     downsample_factor=downsample_factor)
+            epochs, labels = load_subject_train_data(sid, downsample_factor=downsample_factor)
             epoch_list.append(epochs)
             label_list.append(labels)
 
@@ -85,10 +83,11 @@ def get_pytorch_dataloader(subject_ids: List[int],
         labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
         # SCALE
-        scaler = StandardScaler()
-        num_e, num_t, num_c = epochs.shape
-        epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, shape=(num_e * num_t, num_c))),
-                            shape=(num_e, num_t, num_c))
+        if scaled:
+            scaler = StandardScaler()
+            num_e, num_t, num_c = epochs.shape
+            epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, shape=(num_e * num_t, num_c))),
+                                shape=(num_e, num_t, num_c))
 
         if shuffle:
             shuffle_idxs = np.random.permutation(range(len(labels)))

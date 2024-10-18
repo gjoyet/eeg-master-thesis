@@ -61,6 +61,7 @@ class LSTMPredictor(nn.Module):
         c_0 = torch.zeros(1, batch_size, self.hidden_dim)  # will need to add a dimension if batched
 
         # Ensure we detach the hidden states between sequences to prevent backprop through time
+        # TODO: make sure chatGPT did not gaslight me into doing this.
         h_0 = h_0.detach()
         c_0 = c_0.detach()
 
@@ -96,11 +97,10 @@ def init_lstm():
 
     log('Starting LSTM Run')
 
-    subject_ids = get_subject_ids()
-
     print('\nLoading data...')
-    dataloader = get_pytorch_dataloader(subject_ids,
-                                        downsample_factor=downsample_factor)
+
+    dataloader = get_pytorch_dataloader(downsample_factor=downsample_factor,
+                                        scaled=True)
 
     model = LSTMPredictor(input_dim=64, hidden_dim=64)
     model = model.to(device)
@@ -125,28 +125,27 @@ def init_lstm():
             # reshape labels to match output
             labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
             loss = loss_function(outputs, labels)
-            print(loss)
             total_loss += loss.item()
 
             loss.backward()
             optimizer.step()
 
         end = time.time()
-        print('Epoch [{}/{}]:\n{:>16}: {:8.2f}\n{:>16}: {:8.2f}\n'.format(epoch + 1,
+        print('Epoch [{}/{}]:\n{:>14}: {:8.2f}\n{:>14}: {:8.2f}\n'.format(epoch + 1,
                                                                           num_epochs,
-                                                                          'Loss:',
+                                                                          'Loss',
                                                                           total_loss,
-                                                                          'Elapsed Time:',
+                                                                          'Elapsed Time',
                                                                           end - start))
 
     print('\nSaving model...')
 
     # timestamp = datetime.datetime.now().strftime("D%Y-%m-%d_T%H-%M-%S")
-    torch.save(model.state_dict(), 'models/rnn.pth')
+    torch.save(model.state_dict(), 'models/lstm.pth')
 
     # for testing
     # model = LSTMPredictor(input_dim=64, hidden_dim=64)
-    # model.load_state_dict(torch.load('models/rnn.pth', weights_only=True))
+    # model.load_state_dict(torch.load('models/lstm.pth', weights_only=True))
 
     print('\nEvaluating model...')
 
@@ -168,6 +167,7 @@ def init_lstm():
         x_plot = np.arange(-1000 + washout * downsample_factor, 1250, downsample_factor)
         sns.lineplot(x=x_plot, y=y_plot)
         plt.title('Accuracy After Training')
+        plt.savefig('results/lstm_accuracy.png')
         plt.show()
 
 
