@@ -7,15 +7,13 @@ import torch.optim as optim
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
+import datetime
 
-from utils.dataloader import get_subject_ids, load_all_train_data
+from utils.dataloader import get_subject_ids, get_pytorch_dataloader
 from utils.logger import log
-
 
 matplotlib.use('macOSX')
 torch.manual_seed(42)
-epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
 '''
 Following PyTorch tutorial (https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html)
@@ -25,6 +23,8 @@ TODOS:
     – Model not learning: batch/layer normalization? 
     – Save model at the end!
     – Batch it to make it faster?
+    - Try GRUs instead of LSTMs?
+    - For other tips and tricks refer to https://www.ncbi.nlm.nih.gov/books/NBK597502/.
     
     - How can I train on data while not holding the whole data in memory all the time?
     - Check that computation of accuracy.
@@ -45,7 +45,7 @@ class LSTMPredictor(nn.Module):
 
         # The LSTM takes word embeddings as inputs, and outputs hidden states
         # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(input_dim, hidden_dim)  # will need batch_first=True if batched
+        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)  # will need batch_first=True if batched
 
         # The linear layer that maps from hidden state space to tag space
         self.linear = nn.Linear(hidden_dim, 1)
@@ -53,18 +53,20 @@ class LSTMPredictor(nn.Module):
         # Pass through tanh to transform output of linear layer to number between -1 and 1
         self.sig = nn.Sigmoid()
 
-    def forward(self, sequence):
+    def forward(self, batch):
+        batch_size = batch.shape[0]
+
         # Initialize hidden state (h_0, c_0)
-        h_0 = torch.zeros(1, self.hidden_dim)  # will need to add a dimension if batched
-        c_0 = torch.zeros(1, self.hidden_dim)  # will need to add a dimension if batched
+        h_0 = torch.zeros(1, batch_size, self.hidden_dim)  # will need to add a dimension if batched
+        c_0 = torch.zeros(1, batch_size, self.hidden_dim)  # will need to add a dimension if batched
 
         # Ensure we detach the hidden states between sequences to prevent backprop through time
         h_0 = h_0.detach()
         c_0 = c_0.detach()
 
         # Pass through LSTM
-        h, _ = self.lstm(sequence, (h_0, c_0))
-        out = self.linear(h.view(len(sequence), -1))
+        h, _ = self.lstm(batch, (h_0, c_0))
+        out = self.linear(h)
         score = self.sig(out)
         return score
 
@@ -87,72 +89,82 @@ def init_lstm():
     title = 'LSTM Analysis with Default Parameters'
     filename = 'lstm_accuracy'
 
-    downsample_factor = 50
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    downsample_factor = 5  # already have files for 5
     washout = int(1000 / downsample_factor)
 
     log('Starting LSTM Run')
 
-    subject_ids = get_subject_ids(epoch_data_path)
-
-    accuracies = []
+    subject_ids = get_subject_ids()
 
     print('\nLoading data...')
-    X, y = load_all_train_data(subject_ids,
-                               epoch_data_path=epoch_data_path,
-                               behav_data_path=behavioural_data_path,
-                               downsample_factor=downsample_factor)
+    dataloader = get_pytorch_dataloader(subject_ids,
+                                        downsample_factor=downsample_factor)
 
-    X = torch.Tensor(X)
-    y = torch.Tensor((y + 1) / 2)   # transform -1 labels to 0
-
-    # Make data smaller for testing
-    # TODO: delete afterwards
-    # np.random.seed(seed=42)
-    # idxs = np.random.choice(len(y), size=len(y)//50)
-    # X = X[idxs]
-    # y = y[idxs]
-
-    num_samples, num_timesteps, num_channels = X.shape
-
-    model = LSTMPredictor(num_channels, num_channels)
+    model = LSTMPredictor(input_dim=64, hidden_dim=64)
+    model = model.to(device)
     # model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
-    optimizer = optim.SGD(model.parameters(), lr=1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=1e-3)
 
-    print('\nStarting training. Number of sequences: {}\n'.format(X.shape[0]))
+    print('\nStarting training...\n')
 
-    for epoch in range(5):
+    num_epochs = 5
+    for epoch in range(num_epochs):
         total_loss = 0
         start = time.time()
 
-        for sequence, label in zip(X, y):
-            # Step 1. Remember that Pytorch accumulates gradients.
-            # We need to clear them out before each instance
+        for inputs, labels in dataloader:
+            # inputs have shape (batch_size, sequence_length, num_features)
             model.zero_grad()
 
-            # Step 3. Run our forward pass.
-            scores = model(sequence)[washout:]
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)[:, washout:, :]
 
-            # Step 4. Compute the loss, gradients, and update the parameters
-            loss = loss_function(scores, torch.full_like(scores, label))
+            # reshape labels to match output
+            labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+            loss = loss_function(outputs, labels)
+            print(loss)
             total_loss += loss.item()
+
             loss.backward()
             optimizer.step()
 
         end = time.time()
-        print('\nLoss at epoch #{:02d}: {:8.2f}\nElapsed Time: {:6.1f}\n'.format(epoch+1, total_loss, end-start))
-        
-    # very unpretty, but should work
-    acc_after_training = []
-    with torch.no_grad():
-        for sequence, label in zip(X, y):
-            scores = model(sequence)[washout:]
-            if label == 0:
-                scores = 1 - scores  # invert scores if label is 0 (to represent accuracy)
-            acc_after_training.append(scores)
+        print('Epoch [{}/{}]:\n{:>16}: {:8.2f}\n{:>16}: {:8.2f}\n'.format(epoch + 1,
+                                                                          num_epochs,
+                                                                          'Loss:',
+                                                                          total_loss,
+                                                                          'Elapsed Time:',
+                                                                          end - start))
 
-        acc_after_training = np.array(acc_after_training)
-        y_plot = np.mean(acc_after_training, axis=0).flatten()
+    print('\nSaving model...')
+
+    # timestamp = datetime.datetime.now().strftime("D%Y-%m-%d_T%H-%M-%S")
+    torch.save(model.state_dict(), 'models/rnn.pth')
+
+    # for testing
+    # model = LSTMPredictor(input_dim=64, hidden_dim=64)
+    # model.load_state_dict(torch.load('models/rnn.pth', weights_only=True))
+
+    print('\nEvaluating model...')
+
+    # very unpretty, but should work
+    accuracies = torch.Tensor(0)
+    with torch.no_grad():
+        model.eval()
+
+        for inputs, labels in dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)[:, washout:, :]
+
+            outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
+
+            accuracies = torch.cat((accuracies, outputs), dim=0)
+
+        accuracies = accuracies.numpy()
+        y_plot = np.mean(accuracies, axis=0).flatten()
         x_plot = np.arange(-1000 + washout * downsample_factor, 1250, downsample_factor)
         sns.lineplot(x=x_plot, y=y_plot)
         plt.title('Accuracy After Training')

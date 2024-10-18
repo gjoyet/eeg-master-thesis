@@ -7,10 +7,6 @@ from utils.dataloader import get_subject_ids, load_subject_train_data
 from utils.logger import log
 
 
-epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
-
-
 '''
 Following Lukosevicius et al., Overview of Reservoir Recipes.
 
@@ -80,15 +76,13 @@ def init_esn():
 
     log('Starting ESN Run')
 
-    subject_ids = get_subject_ids(epoch_data_path)
+    subject_ids = get_subject_ids()
 
     accuracies = []
 
     # Loop loads, processes and decodes data one subject at a time
     for subject_id in subject_ids:
         epochs, labels = load_subject_train_data(subject_id,
-                                                 epoch_data_path=epoch_data_path,
-                                                 behav_data_path=behavioural_data_path,
                                                  downsample_factor=downsample_factor)
 
         esn = EchoStateNetwork(input_dim=epochs.shape[-1])

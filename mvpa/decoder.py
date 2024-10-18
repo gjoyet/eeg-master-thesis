@@ -16,8 +16,6 @@ from utils.logger import log
 
 
 matplotlib.use('macOSX')
-epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
-behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
 
 
 '''
@@ -40,15 +38,13 @@ def init_mvpa():
 
     log(title)
 
-    subject_ids = get_subject_ids(epoch_data_path)
+    subject_ids = get_subject_ids()
 
     accuracies = []
 
     # Loop loads, processes and decodes data one subject at a time
     for subject_id in subject_ids:
         epochs, labels = load_subject_train_data(subject_id,
-                                                 epoch_data_path=epoch_data_path,
-                                                 behav_data_path=behavioural_data_path,
                                                  downsample_factor=args.downsample_factor)
 
         if args.pseudo_k > 1:
@@ -59,10 +55,6 @@ def init_mvpa():
         log('Decoding subject #{:03d}'.format(subject_id))
 
         acc = decode_response_over_time(epochs, labels, C=args.SVM_C, window_width=args.SVM_window_width)
-
-        # Plot all independently to find problematic subjects
-        # TODO: delete afterwards
-        plot_accuracies(data=acc, title=title, savefile=filename, downsample_factor=args.downsample_factor)
 
         accuracies.append(acc)
 

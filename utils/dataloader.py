@@ -5,8 +5,105 @@ from typing import Dict, Tuple, List
 import mne
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import torch
+from torch.utils.data import Dataset, DataLoader
 
 from mne.epochs import EpochsFIF
+
+
+# Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
+# data of each subject inside a folder named <subject_id>.
+epoch_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/preprocessed/stim_epochs'
+behavioural_data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG/raw'
+
+
+'''
+TODOS:
+    - Change file such that only dataloader.py needs path variables for the data 
+      instead of the files higher in the hierarchy.
+'''
+
+
+class CustomNPZDataset(Dataset):
+    def __init__(self, file_path, transform=None):
+        # Load the .npz file in 'mmap_mode' for memory-efficient access
+        self.data = np.load(file_path, mmap_mode='r')
+
+        # Assume the .npz file contains two arrays: 'inputs' and 'labels'
+        self.inputs = self.data['epochs']
+        self.labels = self.data['labels']
+        self.transform = transform
+
+    def __len__(self):
+        return self.inputs.shape[0]  # Return the number of samples (rows)
+
+    def __getitem__(self, idx):
+        # Load a single input and label
+        input_data = self.inputs[idx]
+        label = self.labels[idx]
+
+        # Apply any transformations if necessary
+        if self.transform:
+            input_data = self.transform(input_data)
+
+        # Convert to PyTorch tensors and return
+        return torch.tensor(input_data, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+
+
+def get_pytorch_dataloader(subject_ids: List[int],
+                           downsample_factor: int = 1,
+                           shuffle: bool = True) -> torch.utils.data.DataLoader:
+    """
+    Returns a pytorch dataloader with the complete training data.
+    Data have applied baseline, dropped NaN labels, and have been downsampled.
+    Additionally, the data is scaled, which is not done when loading data of subjects individually. This is because
+    the data should be scaled before it is put into a pytorch dataset object. The individual loading of subject data
+    on the other hand is used by MVPA, where sklearn scales the data for each cross-validation fold separately, which
+    is why it should not be scaled beforehand.
+    :param subject_ids:
+    :param downsample_factor: number of samples that are collapsed into one by averaging.
+    :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
+    :return: pytorch dataloader with training data.
+    """
+    filename = '../../data/training_data_{}Hz.npz'.format(int(1000 / downsample_factor))
+
+    # if file already exists, do nothing
+    if not os.path.isfile(filename):
+        # else load whole training data and save it in .npz file
+        epoch_list = []
+        label_list = []
+
+        for sid in subject_ids:
+            epochs, labels = load_subject_train_data(sid, epoch_data_path, behavioural_data_path,
+                                                     downsample_factor=downsample_factor)
+            epoch_list.append(epochs)
+            label_list.append(labels)
+
+        epochs = np.concat(epoch_list, axis=0)
+        labels = np.concat(label_list, axis=0)
+        labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+
+        # SCALE
+        scaler = StandardScaler()
+        num_e, num_t, num_c = epochs.shape
+        epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, shape=(num_e * num_t, num_c))),
+                            shape=(num_e, num_t, num_c))
+
+        if shuffle:
+            shuffle_idxs = np.random.permutation(range(len(labels)))
+            epochs = epochs[shuffle_idxs]
+            labels = labels[shuffle_idxs]
+
+        np.savez(filename, epochs=epochs, labels=labels)
+
+    # Define dataset and DataLoader
+    dataset = CustomNPZDataset(file_path=filename)
+
+    # Use DataLoader for batch loading
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
+
+    return dataloader
 
 
 def average_augment_data(epochs: np.ndarray[float],
@@ -57,72 +154,18 @@ def average_augment_data(epochs: np.ndarray[float],
     return pseudo_epochs, pseudo_labels
 
 
-def load_all_train_data(subject_ids: List[int],
-                        epoch_data_path: str,
-                        behav_data_path: str,
-                        downsample_factor: int = 1,
-                        shuffle: bool = True) -> Tuple[np.ndarray[float], np.ndarray[int]]:
-    """
-    Loads data and labels (behavioural outcomes) for all subjects.
-    Loaded data have applied baseline, dropped NaN labels, and have been downsampled.
-    If no stored file exists, loads data from individual files and saves complete data in a file.
-    If file already exists, loads data from there.
-    :param subject_ids:
-    :param epoch_data_path: path to epoch data.
-    :param behav_data_path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
-    :param downsample_factor: number of samples that are collapsed into one by averaging.
-    :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
-    :return: numpy array containing epoch data (of shape #epochs x #timesteps x #channels),
-             numpy array with corresponding labels (of length #epochs).
-    """
-    filename = 'data/training_data.npz'
-    # TODO: load data if available
-    if os.path.isfile(filename):
-        train_data = np.load(filename)
-        epochs = train_data['epochs']
-        labels = train_data['labels']
-        print('Using stored training data.')
-        return epochs, labels
-
-    epoch_list = []
-    label_list = []
-
-    for sid in subject_ids:
-        epochs, labels = load_subject_train_data(sid, epoch_data_path, behav_data_path,
-                                                 downsample_factor=downsample_factor)
-        epoch_list.append(epochs)
-        label_list.append(labels)
-
-    epochs = np.concat(epoch_list, axis=0)
-    labels = np.concat(label_list, axis=0)
-
-    if shuffle:
-        shuffle_idxs = np.random.permutation(range(len(labels)))
-        epochs = epochs[shuffle_idxs]
-        labels = labels[shuffle_idxs]
-
-    # TODO: save data
-    np.savez(filename, epochs=epochs, labels=labels)
-
-    return epochs, labels
-
-
 def load_subject_train_data(subject_id: int,
-                            epoch_data_path: str,
-                            behav_data_path: str,
                             downsample_factor: int = 1) -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
     Applies baseline, drops NaN labels, downsamples.
     :param subject_id:
-    :param epoch_data_path: path to epoch data.
-    :param behav_data_path: path to behavioural data. Expects data of each subject to be in a folder named <subject_id>.
     :param downsample_factor: number of samples that are collapsed into one by averaging.
     :return: numpy array containing epoch data (of shape #epochs x #timesteps x #channels),
              numpy array with corresponding labels (of length #epochs).
     """
     epochs_dict = load_subject_epochs(epoch_data_path, subject_id)
-    results_df = load_subject_labels(behav_data_path, subject_id)
+    results_df = load_subject_labels(behavioural_data_path, subject_id)
 
     epochs_list = []
     labels_list = []
@@ -207,13 +250,12 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     return combined_df
 
 
-def get_subject_ids(path: str) -> np.ndarray:
+def get_subject_ids() -> np.ndarray:
     """
     Scan through directory to get a list of subject IDs.
-    :param path: path to the directory containing the files.
     :return: numpy array of subject IDs.
     """
-    filenames = os.listdir(path)
+    filenames = os.listdir(epoch_data_path)
 
     subject_ids = []
 
