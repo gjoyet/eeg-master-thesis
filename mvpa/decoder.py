@@ -85,7 +85,7 @@ def decode_response_over_time(epochs: np.ndarray[float],
     for t in range(epochs.shape[1] - window_width + 1):
         pipeline = Pipeline([('scaler', StandardScaler()),
                              ('svc', svm.SVC(kernel='linear', C=C, class_weight='balanced'))])
-        scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], shape=(num_epochs, -1)),
+        scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)),
                                  labels, cv=5)
         subject_accuracies.append(np.mean(scores))
 
@@ -113,7 +113,10 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
 
     # Create the lineplot, seaborn will automatically calculate confidence intervals
     sns.lineplot(data=df, x=(df['Time'] + washout) * downsample_factor - 1000, y='Mean_Accuracy',
-                 errorbar='sd', label='Accuracy')
+                 errorbar='ci', label='Accuracy')  # BUT confidence band gets much larger with 'sd'
+    # Also, it is important to note that MVPA computes CIs over subjects, while the
+    # neural nets compute CIs over trials.Higher n makes for narrower CIs, i.e. neural
+    # nets will have much narrower CIs without this implying higher certainty.
     sns.despine()
 
     plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')

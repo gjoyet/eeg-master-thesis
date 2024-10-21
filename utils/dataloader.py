@@ -86,8 +86,8 @@ def get_pytorch_dataloader(downsample_factor: int = 1,
         if scaled:
             scaler = StandardScaler()
             num_e, num_t, num_c = epochs.shape
-            epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, shape=(num_e * num_t, num_c))),
-                                shape=(num_e, num_t, num_c))
+            epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
+                                (num_e, num_t, num_c))
 
         if shuffle:
             shuffle_idxs = np.random.permutation(range(len(labels)))
@@ -172,6 +172,8 @@ def load_subject_train_data(subject_id: int,
     for block in epochs_dict.keys():
         epochs = epochs_dict[block]
         epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
+        # TODO: see if I can fix NaN / inf value issues when interpolating.
+        # epochs = epochs.interpolate_bads(reset_bads=False)
         labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
 
         # select labels for which the corresponding epoch was accepted
@@ -191,8 +193,8 @@ def load_subject_train_data(subject_id: int,
     # DOWNSAMPLE from 1000 Hz to (1000 / downsample_factor) Hz
     # Ignore first time-step since there are 2251 time-steps, which is not easily divisible.
     if downsample_factor > 1:
-        epochs = np.reshape(epochs[:, :, 1:], shape=(num_epochs, num_channels, num_timesteps // downsample_factor,
-                                                     downsample_factor))
+        epochs = np.reshape(epochs[:, :, 1:], (num_epochs, num_channels, num_timesteps // downsample_factor,
+                                               downsample_factor))
         epochs = np.mean(epochs, axis=-1)
 
     # Transpose to get shape (#epochs x #timesteps x #channels)

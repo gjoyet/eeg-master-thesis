@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import datetime
 
+from mvpa.decoder import plot_accuracies
 from utils.dataloader import get_subject_ids, get_pytorch_dataloader
 from utils.logger import log
 
@@ -31,6 +32,9 @@ TODOS:
     
     - Get used to using pytorch 'device' in code for later when I run it on GPUs.
     - Try RNN that produces only one output at the end, train it on different sequence lengths.
+    
+    – Validate on separate data.
+    – Try data averaging/augmentation?
 '''
 
 
@@ -87,13 +91,17 @@ def init_weights(m):
 
 
 def init_lstm():
-    title = 'LSTM Analysis with Default Parameters'
+    title = 'LSTM: Accuracy after Training'
     filename = 'lstm_accuracy'
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    downsample_factor = 5  # already have files for 5
+    # HYPERPARAMETERS
+    downsample_factor = 10
     washout = int(1000 / downsample_factor)
+    hidden_dim = 64
+    learning_rate = 1e-1
+    num_epochs = 25
 
     log('Starting LSTM Run')
 
@@ -102,17 +110,18 @@ def init_lstm():
     dataloader = get_pytorch_dataloader(downsample_factor=downsample_factor,
                                         scaled=True)
 
-    model = LSTMPredictor(input_dim=64, hidden_dim=64)
+    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
     model = model.to(device)
-    # model.apply(init_weights)  # probably delete this
+    model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
-    optimizer = optim.SGD(model.parameters(), lr=1e-3)
+    # TODO: Try momentum. Try other optimizers. Try reducing learning rate once the loss plateaus.
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
     print('\nStarting training...\n')
 
-    num_epochs = 5
+    epochs_total_loss = np.zeros(num_epochs)
+
     for epoch in range(num_epochs):
-        total_loss = 0
         start = time.time()
 
         for inputs, labels in dataloader:
@@ -125,7 +134,7 @@ def init_lstm():
             # reshape labels to match output
             labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
             loss = loss_function(outputs, labels)
-            total_loss += loss.item()
+            epochs_total_loss[epoch] += loss.item()
 
             loss.backward()
             optimizer.step()
@@ -134,9 +143,14 @@ def init_lstm():
         print('Epoch [{}/{}]:\n{:>14}: {:8.2f}\n{:>14}: {:8.2f}\n'.format(epoch + 1,
                                                                           num_epochs,
                                                                           'Loss',
-                                                                          total_loss,
+                                                                          epochs_total_loss[epoch],
                                                                           'Elapsed Time',
                                                                           end - start))
+
+    sns.lineplot(y=epochs_total_loss, x=range(1, num_epochs+1))
+    plt.title("Loss over epochs")
+    plt.savefig('results/lstm_loss.png')
+    plt.show()
 
     print('\nSaving model...')
 
@@ -144,8 +158,8 @@ def init_lstm():
     torch.save(model.state_dict(), 'models/lstm.pth')
 
     # for testing
-    # model = LSTMPredictor(input_dim=64, hidden_dim=64)
-    # model.load_state_dict(torch.load('models/lstm.pth', weights_only=True))
+    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
+    model.load_state_dict(torch.load('models/lstm.pth', weights_only=True))
 
     print('\nEvaluating model...')
 
@@ -162,13 +176,8 @@ def init_lstm():
 
             accuracies = torch.cat((accuracies, outputs), dim=0)
 
-        accuracies = accuracies.numpy()
-        y_plot = np.mean(accuracies, axis=0).flatten()
-        x_plot = np.arange(-1000 + washout * downsample_factor, 1250, downsample_factor)
-        sns.lineplot(x=x_plot, y=y_plot)
-        plt.title('Accuracy After Training')
-        plt.savefig('results/lstm_accuracy.png')
-        plt.show()
+        plot_accuracies(data=accuracies.squeeze().numpy(), title=title, savefile=filename,
+                        downsample_factor=downsample_factor, washout=washout)
 
 
 if __name__ == '__main__':
