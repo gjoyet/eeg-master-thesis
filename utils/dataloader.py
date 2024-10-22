@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 from mne.epochs import EpochsFIF
 
@@ -52,9 +52,9 @@ class CustomNPZDataset(Dataset):
 
 def get_pytorch_dataloader(downsample_factor: int = 1,
                            scaled: bool = True,
-                           shuffle: bool = True) -> torch.utils.data.DataLoader:
+                           shuffle: bool = True) -> torch.utils.data.Dataset:
     """
-    Returns a pytorch dataloader with the complete training data.
+    Returns a pytorch dataset with the complete training data.
     Data have applied baseline, dropped NaN labels, and have been downsampled.
     Additionally, the data can be scale scaled.
     :param downsample_factor: number of samples that are collapsed into one by averaging.
@@ -99,10 +99,7 @@ def get_pytorch_dataloader(downsample_factor: int = 1,
     # Define dataset and DataLoader
     dataset = CustomNPZDataset(file_path=filename)
 
-    # Use DataLoader for batch loading
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
-
-    return dataloader
+    return dataset
 
 
 def average_augment_data(epochs: np.ndarray[float],

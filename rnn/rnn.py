@@ -4,13 +4,14 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader, random_split
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import datetime
 
 from mvpa.decoder import plot_accuracies
-from utils.dataloader import get_subject_ids, get_pytorch_dataloader
+from utils.dataloader import get_pytorch_dataloader
 from utils.logger import log
 
 matplotlib.use('macOSX')
@@ -33,7 +34,10 @@ TODOS:
     - Get used to using pytorch 'device' in code for later when I run it on GPUs.
     - Try RNN that produces only one output at the end, train it on different sequence lengths.
     
-    – Validate on separate data.
+    – VALIDATE on separate data. Compare: train separate model for HC/SCZ or one model but validate
+        on HC/SCZ separately. Also compare leave x trials out for validation (from random subjects) vs.
+        leave whole subjects out.
+    – Try regularization (dropout, ...?)
     – Try data averaging/augmentation?
 '''
 
@@ -91,24 +95,35 @@ def init_weights(m):
 
 
 def init_lstm():
-    title = 'LSTM: Accuracy after Training'
-    filename = 'lstm_accuracy'
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 10
+    downsample_factor = 5
     washout = int(1000 / downsample_factor)
     hidden_dim = 64
     learning_rate = 1e-1
-    num_epochs = 25
+    num_epochs = 250
+
+    title = 'LSTM: Accuracy on Validation Set ({} epochs, learning rate = {})'.format(num_epochs, learning_rate)
+    filename = '_{:03d}-epochs_{}-lr'.format(num_epochs, int(learning_rate*1e4))
 
     log('Starting LSTM Run')
 
     print('\nLoading data...')
 
-    dataloader = get_pytorch_dataloader(downsample_factor=downsample_factor,
-                                        scaled=True)
+    dataset = get_pytorch_dataloader(downsample_factor=downsample_factor,
+                                     scaled=True)
+
+    # Split lengths (e.g., 80% train, 20% test)
+    train_size = int(0.8 * len(dataset))
+    test_size = len(dataset) - train_size
+
+    # Split the dataset
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+    # Create DataLoaders
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
     model = model.to(device)
@@ -119,12 +134,14 @@ def init_lstm():
 
     print('\nStarting training...\n')
 
-    epochs_total_loss = np.zeros(num_epochs)
+    epochs_train_loss = np.zeros(num_epochs)
+    epochs_validation_loss = np.zeros(num_epochs)
 
     for epoch in range(num_epochs):
         start = time.time()
 
-        for inputs, labels in dataloader:
+        # training loop
+        for inputs, labels in train_loader:
             # inputs have shape (batch_size, sequence_length, num_features)
             model.zero_grad()
 
@@ -134,41 +151,58 @@ def init_lstm():
             # reshape labels to match output
             labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
             loss = loss_function(outputs, labels)
-            epochs_total_loss[epoch] += loss.item()
+            epochs_train_loss[epoch] += loss.item()
 
             loss.backward()
             optimizer.step()
 
-        end = time.time()
-        print('Epoch [{}/{}]:\n{:>14}: {:8.2f}\n{:>14}: {:8.2f}\n'.format(epoch + 1,
-                                                                          num_epochs,
-                                                                          'Loss',
-                                                                          epochs_total_loss[epoch],
-                                                                          'Elapsed Time',
-                                                                          end - start))
+        # validation loop
+        with torch.no_grad():
+            model.eval()
 
-    sns.lineplot(y=epochs_total_loss, x=range(1, num_epochs+1))
-    plt.title("Loss over epochs")
-    plt.savefig('results/lstm_loss.png')
-    plt.show()
+            for inputs, labels in test_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)[:, washout:, :]
+
+                # reshape labels to match output
+                labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+                loss = loss_function(outputs, labels)
+                epochs_validation_loss[epoch] += loss.item()
+
+            model.train()
+
+        end = time.time()
+        print('Epoch [{}/{}]:\n{:>17}: {:8.2f}\n{:>17}: {:8.2f}\n{:>17}: {:8.2f}\n'.format(epoch + 1,
+                                                                                           num_epochs,
+                                                                                           'Train Loss',
+                                                                                           epochs_train_loss[epoch],
+                                                                                           'Validation Loss',
+                                                                                           epochs_validation_loss[
+                                                                                               epoch],
+                                                                                           'Elapsed Time',
+                                                                                           end - start))
 
     print('\nSaving model...')
 
     # timestamp = datetime.datetime.now().strftime("D%Y-%m-%d_T%H-%M-%S")
-    torch.save(model.state_dict(), 'models/lstm.pth')
+    torch.save(model.state_dict(), 'models/lstm{}.pth'.format(filename))
+
+    sns.lineplot(y=epochs_train_loss, x=range(1, num_epochs + 1), label='Training Loss')
+    sns.lineplot(y=epochs_validation_loss, x=range(1, num_epochs + 1), label='Validation Loss')
+    plt.title("Loss over epochs")
+    plt.savefig('results/lstm_loss{}.png'.format(filename))
 
     # for testing
-    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
-    model.load_state_dict(torch.load('models/lstm.pth', weights_only=True))
+    # model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
+    # model.load_state_dict(torch.load('models/...', weights_only=True))
 
     print('\nEvaluating model...')
 
-    # very unpretty, but should work
     accuracies = torch.Tensor(0)
     with torch.no_grad():
         model.eval()
 
-        for inputs, labels in dataloader:
+        for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
 
@@ -176,7 +210,7 @@ def init_lstm():
 
             accuracies = torch.cat((accuracies, outputs), dim=0)
 
-        plot_accuracies(data=accuracies.squeeze().numpy(), title=title, savefile=filename,
+        plot_accuracies(data=accuracies.squeeze().numpy(), title=title, savefile='lstm_accuracy{}.png'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 
