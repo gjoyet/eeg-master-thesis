@@ -17,12 +17,6 @@ wd = '/Volumes/Guillaume EEG Project'
 epoch_data_path = os.path.join(wd, 'Berlin_Data/EEG/preprocessed/stim_epochs')
 behavioural_data_path = os.path.join(wd, 'Berlin_Data/EEG/raw')
 
-'''
-TODOS:
-    - Change file such that only dataloader.py needs path variables for the data 
-      instead of the files higher in the hierarchy.
-'''
-
 
 class CustomNPZDataset(Dataset):
     def __init__(self, file_path, transform=None):
