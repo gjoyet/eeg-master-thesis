@@ -82,10 +82,15 @@ def decode_response_over_time(epochs: np.ndarray[float],
     # Loop trains SVM for each timestep / window in the epoch data
     for t in range(epochs.shape[1] - window_width + 1):
         pipeline = Pipeline([('scaler', StandardScaler()),
-                             ('lm', linear_model.LinearRegression())])
-        scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)),
-                                 labels, cv=5)  # not sure this works for regression
-        scores = np.abs(scores)
+                             ('svr', svm.SVR())])
+
+        # When doing k-fold CV with regression, scores turn out to be outside the -1 to 1 range (very negative).
+        # scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)),
+        #                          labels, cv=5)  # not sure this works for regression
+        # scores = np.abs(scores)
+
+        pipeline.fit(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels)
+        scores = pipeline.score(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels)
         subject_accuracies.append(np.mean(scores))
 
     return np.array(subject_accuracies)
@@ -151,11 +156,11 @@ def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width)
         C,
         window_width)
 
-    filename = 'mvpa_regression_decode_first_sample_linreg'.format(int(1000 / downsample_factor),
-                                                                   pseudo_k,
-                                                                   augment_factor,
-                                                                   int(C * 1000),
-                                                                   window_width)
+    filename = 'mvpa_regression_decode_first_sample_svr'.format(int(1000 / downsample_factor),
+                                                                pseudo_k,
+                                                                augment_factor,
+                                                                int(C * 1000),
+                                                                window_width)
 
     return title, filename
 
