@@ -21,19 +21,11 @@ torch.manual_seed(42)
 Following PyTorch tutorial (https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html)
 
 TODOS:
-    – FOR NOW: output scores are the same over the whole sequence, and even between sequences...
-    – Model not learning: batch/layer normalization? 
-    – Save model at the end!
-    – Batch it to make it faster?
+    – FOR NOW: training loss decreases, but validation loss does not (even increases).
+        Is the model really only overfitting?
     - Try GRUs instead of LSTMs?
     - For other tips and tricks refer to https://www.ncbi.nlm.nih.gov/books/NBK597502/.
-    
-    - How can I train on data while not holding the whole data in memory all the time?
-    - Check that computation of accuracy.
-    
-    - Get used to using pytorch 'device' in code for later when I run it on GPUs.
-    - Try RNN that produces only one output at the end, train it on different sequence lengths.
-    
+        
     – VALIDATE on separate data. Compare: train separate model for HC/SCZ or one model but validate
         on HC/SCZ separately. Also compare leave x trials out for validation (from random subjects) vs.
         leave whole subjects out.
@@ -44,16 +36,17 @@ TODOS:
 
 class LSTMPredictor(nn.Module):
 
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, num_layers=1):
         super(LSTMPredictor, self).__init__()
         self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
 
         # Trying to embed EEG data could be interesting
         # self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
 
         # The LSTM takes word embeddings as inputs, and outputs hidden states
         # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)  # will need batch_first=True if batched
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True)
 
         # The linear layer that maps from hidden state space to tag space
         self.linear = nn.Linear(hidden_dim, 1)
@@ -65,8 +58,8 @@ class LSTMPredictor(nn.Module):
         batch_size = batch.shape[0]
 
         # Initialize hidden state (h_0, c_0)
-        h_0 = torch.zeros(1, batch_size, self.hidden_dim)  # will need to add a dimension if batched
-        c_0 = torch.zeros(1, batch_size, self.hidden_dim)  # will need to add a dimension if batched
+        h_0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
+        c_0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
 
         # Ensure we detach the hidden states between sequences to prevent backprop through time
         # TODO: make sure chatGPT did not gaslight me into doing this.
@@ -98,14 +91,22 @@ def init_lstm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 5
+    downsample_factor = 1  # when 1 -> memory overload: can I save file in several steps?
     washout = int(1000 / downsample_factor)
     hidden_dim = 64
+    num_layers = 1
     learning_rate = 1e-1
-    num_epochs = 250
+    num_epochs = 100
 
-    title = 'LSTM: Accuracy on Validation Set ({} epochs, learning rate = {})'.format(num_epochs, learning_rate)
-    filename = '_{:03d}-epochs_{}-lr'.format(num_epochs, int(learning_rate*1e4))
+    title = 'LSTM: Accuracy on Validation Set ({} epochs, {} layers, hidden dim = {},  learning rate = {})'.format(
+        num_epochs,
+        num_layers,
+        learning_rate,
+        int(hidden_dim))
+    filename = '_{:03d}-epochs_{}-layers_{}-hiddim_{}-lr'.format(num_epochs,
+                                                                 num_layers,
+                                                                 int(learning_rate * 1e4),
+                                                                 int(hidden_dim))
 
     log('Starting LSTM Run')
 
@@ -125,7 +126,7 @@ def init_lstm():
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
-    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
+    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim, num_layers=num_layers)
     model = model.to(device)
     model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
@@ -202,6 +203,18 @@ def init_lstm():
     with torch.no_grad():
         model.eval()
 
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)[:, washout:, :]
+
+            outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
+
+            accuracies = torch.cat((accuracies, outputs), dim=0)
+
+        plot_accuracies(data=accuracies.squeeze().numpy(), title=title,
+                        savefile='lstm_training_accuracy{}.png'.format(filename),
+                        downsample_factor=downsample_factor, washout=washout)
+
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
@@ -210,7 +223,8 @@ def init_lstm():
 
             accuracies = torch.cat((accuracies, outputs), dim=0)
 
-        plot_accuracies(data=accuracies.squeeze().numpy(), title=title, savefile='lstm_accuracy{}.png'.format(filename),
+        plot_accuracies(data=accuracies.squeeze().numpy(), title=title,
+                        savefile='lstm_validation_accuracy{}.png'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 

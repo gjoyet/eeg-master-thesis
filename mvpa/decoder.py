@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn import svm
+from sklearn import svm, linear_model
 from sklearn.model_selection import cross_val_score
 import matplotlib
 import matplotlib.pyplot as plt
@@ -14,9 +14,7 @@ import seaborn as sns
 from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data, get_subject_characteristics
 from utils.logger import log
 
-
 matplotlib.use('macOSX')
-
 
 '''
 TODOS:
@@ -84,9 +82,10 @@ def decode_response_over_time(epochs: np.ndarray[float],
     # Loop trains SVM for each timestep / window in the epoch data
     for t in range(epochs.shape[1] - window_width + 1):
         pipeline = Pipeline([('scaler', StandardScaler()),
-                             ('svc', svm.SVC(kernel='linear', C=C, class_weight='balanced'))])
+                             ('lm', linear_model.LinearRegression())])
         scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)),
-                                 labels, cv=5)
+                                 labels, cv=5)  # not sure this works for regression
+        scores = np.abs(scores)
         subject_accuracies.append(np.mean(scores))
 
     return np.array(subject_accuracies)
@@ -119,7 +118,7 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
     # nets will have much narrower CIs without this implying higher certainty.
     sns.despine()
 
-    plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
+    # plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
     plt.axvline(x=0, ymin=0, ymax=0.05, color='black', linewidth=1, label='Stimulus Onset')
 
     # Set plot labels and title
@@ -152,11 +151,11 @@ def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width)
         C,
         window_width)
 
-    filename = 'mvpa_accuracy_{}Hz_av-{}_aug-{}_C-{}_win-{}'.format(int(1000 / downsample_factor),
-                                                                    pseudo_k,
-                                                                    augment_factor,
-                                                                    int(C * 1000),
-                                                                    window_width)
+    filename = 'mvpa_regression_decode_first_sample_linreg'.format(int(1000 / downsample_factor),
+                                                                   pseudo_k,
+                                                                   augment_factor,
+                                                                   int(C * 1000),
+                                                                   window_width)
 
     return title, filename
 

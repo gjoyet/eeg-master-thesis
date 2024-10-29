@@ -17,12 +17,6 @@ wd = '/Volumes/Guillaume EEG Project'
 epoch_data_path = os.path.join(wd, 'Berlin_Data/EEG/preprocessed/stim_epochs')
 behavioural_data_path = os.path.join(wd, 'Berlin_Data/EEG/raw')
 
-'''
-TODOS:
-    - Change file such that only dataloader.py needs path variables for the data 
-      instead of the files higher in the hierarchy.
-'''
-
 
 class CustomNPZDataset(Dataset):
     def __init__(self, file_path, transform=None):
@@ -171,7 +165,7 @@ def load_subject_train_data(subject_id: int,
         epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
         # TODO: see if I can fix NaN / inf value issues when interpolating.
         # epochs = epochs.interpolate_bads(reset_bads=False)
-        labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
+        labels = (results_df[results_df['run'] == block]['cd_1']).reset_index(drop=True)
 
         # select labels for which the corresponding epoch was accepted
         selected_labels = np.array(labels.loc[epochs.selection])
@@ -231,7 +225,7 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     """
     subdirectory_content = os.listdir(os.path.join(path, str(subject_id)))
 
-    cols = ['session', 'run', 'response', 'confidence', 'correct']
+    cols = ['session', 'run', 'response', 'confidence', 'correct', 'contrast_left_1', 'contrast_right_1']
     dfs = []
 
     # TODO: correct criteria for .csv selection
@@ -241,6 +235,7 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
                                       'wrong' not in k),
                            subdirectory_content):
         data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
+        data['cd_1'] = data['contrast_right_1'] - data['contrast_left_1']
         dfs.append(data)
 
     combined_df = pd.concat(dfs, ignore_index=True)
