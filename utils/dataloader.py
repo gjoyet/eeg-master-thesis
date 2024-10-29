@@ -160,21 +160,26 @@ def load_subject_train_data(subject_id: int,
     epochs_list = []
     labels_list = []
 
+    label_names = ['cd_{}'.format(i+1) for i in range(10)]
+
     for block in epochs_dict.keys():
         epochs = epochs_dict[block]
         epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
         # TODO: see if I can fix NaN / inf value issues when interpolating.
         # epochs = epochs.interpolate_bads(reset_bads=False)
-        labels = (results_df[results_df['run'] == block]['cd_1']).reset_index(drop=True)
+        labels = (results_df[results_df['run'] == block][label_names]).reset_index(drop=True)
+        responses = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
 
         # select labels for which the corresponding epoch was accepted
+        # select responses separately to eliminate NaN
         selected_labels = np.array(labels.loc[epochs.selection])
+        selected_responses = np.array(responses.loc[epochs.selection])
 
         data = epochs.get_data()
 
         # drop NaN labels (no response) and corresponding epochs
-        epochs_list.append(data[~np.isnan(selected_labels)])
-        labels_list.append(selected_labels[~np.isnan(selected_labels)])
+        epochs_list.append(data[~np.isnan(selected_responses)])
+        labels_list.append(selected_labels[~np.isnan(selected_responses)])
 
     epochs = np.concat(epochs_list, axis=0)
     labels = np.concat(labels_list, axis=0)
@@ -225,7 +230,9 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     """
     subdirectory_content = os.listdir(os.path.join(path, str(subject_id)))
 
-    cols = ['session', 'run', 'response', 'confidence', 'correct', 'contrast_left_1', 'contrast_right_1']
+    col_names = ['contrast_left_{}'.format(i+1) for i in range(10)] + ['contrast_right_{}'.format(i+1) for i in range(10)]
+
+    cols = ['session', 'run', 'response', 'confidence', 'correct', *col_names]
     dfs = []
 
     # TODO: correct criteria for .csv selection
@@ -235,7 +242,8 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
                                       'wrong' not in k),
                            subdirectory_content):
         data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
-        data['cd_1'] = data['contrast_right_1'] - data['contrast_left_1']
+        for i in range(10):
+            data['cd_{}'.format(i+1)] = data['contrast_right_{}'.format(i+1)] - data['contrast_left_{}'.format(i+1)]
         dfs.append(data)
 
     combined_df = pd.concat(dfs, ignore_index=True)

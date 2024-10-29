@@ -82,16 +82,19 @@ def decode_response_over_time(epochs: np.ndarray[float],
     # Loop trains SVM for each timestep / window in the epoch data
     for t in range(epochs.shape[1] - window_width + 1):
         pipeline = Pipeline([('scaler', StandardScaler()),
-                             ('svr', svm.SVR())])
+                             ('lm', linear_model.LinearRegression())])
 
         # When doing k-fold CV with regression, scores turn out to be outside the -1 to 1 range (very negative).
         # scores = cross_val_score(pipeline, np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)),
         #                          labels, cv=5)  # not sure this works for regression
         # scores = np.abs(scores)
+        accs = []
+        for i in range(10):
+            pipeline.fit(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels[:, i])
+            score = pipeline.score(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels[:, i])
+            accs.append(score)
 
-        pipeline.fit(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels)
-        scores = pipeline.score(np.reshape(epochs[:, t:t + window_width, :], (num_epochs, -1)), labels)
-        subject_accuracies.append(np.mean(scores))
+        subject_accuracies.append(accs)
 
     return np.array(subject_accuracies)
 
@@ -107,33 +110,33 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
     :param washout:
     :return: None
     """
+    for i in range(9, -1, -1):
+        df = pd.DataFrame(data=data[:, :, i].T)
+        df = df.reset_index().rename(columns={'index': 'Time'})
+        df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
 
-    df = pd.DataFrame(data=data.T)
-    df = df.reset_index().rename(columns={'index': 'Time'})
-    df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
+        # Create a seaborn lineplot, passing the matrix directly to seaborn
+        plt.figure(figsize=(10, 6))  # Optional: Set the figure size
 
-    # Create a seaborn lineplot, passing the matrix directly to seaborn
-    plt.figure(figsize=(10, 6))  # Optional: Set the figure size
+        # Create the lineplot, seaborn will automatically calculate confidence intervals
+        sns.lineplot(data=df, x=(df['Time'] + washout) * downsample_factor - 1000, y='Mean_Accuracy',
+                     errorbar='ci', label='Sample #{}'.format(i + 1))  # BUT confidence band gets much larger with 'sd'
+        # Also, it is important to note that MVPA computes CIs over subjects, while the
+        # neural nets compute CIs over trials.Higher n makes for narrower CIs, i.e. neural
+        # nets will have much narrower CIs without this implying higher certainty.
+        sns.despine()
 
-    # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=df, x=(df['Time'] + washout) * downsample_factor - 1000, y='Mean_Accuracy',
-                 errorbar='ci', label='Accuracy')  # BUT confidence band gets much larger with 'sd'
-    # Also, it is important to note that MVPA computes CIs over subjects, while the
-    # neural nets compute CIs over trials.Higher n makes for narrower CIs, i.e. neural
-    # nets will have much narrower CIs without this implying higher certainty.
-    sns.despine()
+        # plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
+        plt.axvline(x=0, ymin=0, ymax=0.05, color='black', linewidth=1, label='Stimulus Onset')
 
-    # plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
-    plt.axvline(x=0, ymin=0, ymax=0.05, color='black', linewidth=1, label='Stimulus Onset')
+        # Set plot labels and title
+        plt.xlabel('Time (ms)')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.title(title)
 
-    # Set plot labels and title
-    plt.xlabel('Time (ms)')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.title(title)
-
-    if savefile is not None:
-        plt.savefig('results/{}.png'.format(savefile))
+        if savefile is not None:
+            plt.savefig('results/{}_{}.png'.format(savefile, i + 1))
 
     # Show the plot
     plt.show()
@@ -156,11 +159,11 @@ def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width)
         C,
         window_width)
 
-    filename = 'mvpa_regression_decode_first_sample_svr'.format(int(1000 / downsample_factor),
-                                                                pseudo_k,
-                                                                augment_factor,
-                                                                int(C * 1000),
-                                                                window_width)
+    filename = 'mvpa_regression_linreg_decode_sample'.format(int(1000 / downsample_factor),
+                                                             pseudo_k,
+                                                             augment_factor,
+                                                             int(C * 1000),
+                                                             window_width)
 
     return title, filename
 
