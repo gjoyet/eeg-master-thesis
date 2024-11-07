@@ -1,5 +1,6 @@
 import os.path
 import mne
+import pandas as pd
 
 import matplotlib
 
@@ -11,8 +12,20 @@ data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG'
 
 
 if __name__ == '__main__':
-    # raw = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/8/8.vhdr'))
-    raw = mne.read_epochs(os.path.join(data_path, 'preprocessed/stim_epochs/new_eeg_sj2_block1_avg_ref_with_ica_only_muscle_new_minus1000_to_1250ms_stim-epo.fif'))
+    raw = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/13/13.vhdr'))
+    raw1 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/8/8.vhdr'))
+    raw2 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/8/8_2.vhdr'))
+    raw3 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/3/3.vhdr'))
+    # raw = mne.read_epochs(os.path.join(data_path, 'preprocessed/stim_epochs/new_eeg_sj2_block1_avg_ref_with_ica_only_muscle_new_minus1000_to_1250ms_stim-epo.fif'))
+
+    annotations_vc = pd.Series(raw3.annotations.description).value_counts()
+    print(annotations_vc)
+
+    for i, an in enumerate(raw.annotations):
+        if i > 10:
+            print(an)
+        if i == 40:
+            break
 
     print(raw.info)
     print(raw.info.ch_names)
@@ -37,8 +50,8 @@ if __name__ == '__main__':
     print(raw.annotations)
     print(set(raw.annotations.description))
 
-    # raw.plot()
-    # plt.show()
+    raw.plot()
+    plt.show()
 
     # fig = raw.plot_sensors(show_names=True)
     # plt.savefig('results/')

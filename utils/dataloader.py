@@ -56,8 +56,8 @@ def get_pytorch_dataloader(downsample_factor: int = 1,
     :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
     :return: pytorch dataloader with training data.
     """
-    filename = os.path.join(wd, 'Data/training_data_{}Hz_{}.npz'.format(int(1000 / downsample_factor),
-                                                                        'scaled' if scaled else ''))
+    filename = os.path.join(wd, 'Data/training_data_{}Hz{}.npz'.format(int(1000 / downsample_factor),
+                                                                       '_scaled' if scaled else ''))
 
     # if file already exists, do nothing
     if not os.path.isfile(filename):

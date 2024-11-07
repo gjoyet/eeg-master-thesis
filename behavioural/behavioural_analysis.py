@@ -39,6 +39,7 @@ def calculate_per_subject_metrics() -> \
         lapse_rate_drop_NA[subject].append(1 - np.nanmean(df['correct']))
 
         # reaction time
+        print('Reaction time 95th quantile: {}'.format(df['choice_rt'].quantile(q=0.95)))
         reaction_time[subject].append(np.nanmean(df['choice_rt']))
 
         # early choice rate
@@ -199,6 +200,8 @@ def load_all_data(path: str, cols: List[str]) -> pd.DataFrame:
 def plot_metrics():
     # TODO: changed return of calculate_metrics() – adapt here!
     lr, lrnn, rt, er, ct = calculate_per_subject_metrics()
+
+    print(max(rt))
 
     plt.figure(figsize=(5, 6))
     sns.boxplot(lr, saturation=0.7).set_title("Boxplot of Lapse Rate (NaN counted as misses)")

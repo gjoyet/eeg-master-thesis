@@ -23,8 +23,10 @@ Following PyTorch tutorial (https://pytorch.org/tutorials/beginner/nlp/sequence_
 TODOS:
     – FOR NOW: training loss decreases, but validation loss does not (even increases).
         Is the model really only overfitting?
-    - Try GRUs instead of LSTMs?
-    - For other tips and tricks refer to https://www.ncbi.nlm.nih.gov/books/NBK597502/.
+    – Try GRUs instead of LSTMs?
+    – For other tips and tricks refer to https://www.ncbi.nlm.nih.gov/books/NBK597502/.
+    – Try more complex model (inception modules etc.), probably train on raw data.
+    – 
 
     – VALIDATE on separate data. Compare: train separate model for HC/SCZ or one model but validate
         on HC/SCZ separately. Also compare leave x trials out for validation (from random subjects) vs.
@@ -49,7 +51,7 @@ class LSTMPredictor(nn.Module):
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True)
 
         # The linear layer that maps from hidden state space to tag space
-        self.linear = nn.Linear(hidden_dim, 1)
+        self.linear = nn.Linear(hidden_dim + input_dim, 1)
 
         # Pass through tanh to transform output of linear layer to number between -1 and 1
         self.sig = nn.Sigmoid()
@@ -68,7 +70,8 @@ class LSTMPredictor(nn.Module):
 
         # Pass through LSTM
         h, _ = self.lstm(batch, (h_0, c_0))
-        out = self.linear(h)
+        hx = torch.cat((h, batch), 2)
+        out = self.linear(hx)
         score = self.sig(out)
         return score
 
@@ -91,22 +94,22 @@ def init_lstm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 1  # when 1 -> memory overload: can I save file in several steps?
+    downsample_factor = 5  # when 1 -> memory overload: can I save file in several steps?
     washout = int(1000 / downsample_factor)
     hidden_dim = 64
     num_layers = 1
-    learning_rate = 1e-1
-    num_epochs = 100
+    learning_rate = 1e-4
+    weight_decay = 0
+    num_epochs = 20
 
-    title = 'LSTM: Accuracy on Validation Set ({} epochs, {} layers, hidden dim = {},  learning rate = {})'.format(
+    title = 'Accuracy LSTM: ({} epochs, {} layers, hidden dim = {}, learning rate = {})'.format(
         num_epochs,
         num_layers,
         learning_rate,
         int(hidden_dim))
-    filename = '_{:03d}-epochs_{}-layers_{}-hiddim_{}-lr'.format(num_epochs,
-                                                                 num_layers,
-                                                                 int(learning_rate * 1e4),
-                                                                 int(hidden_dim))
+    filename = '_{:03d}-epochs_{}-layers_{}-hiddim'.format(num_epochs,
+                                                           num_layers,
+                                                           int(hidden_dim))
 
     log('Starting LSTM Run')
 
@@ -125,24 +128,43 @@ def init_lstm():
     # Create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    # test_loader = train_loader
 
     model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim, num_layers=num_layers)
     model = model.to(device)
-    model.apply(init_weights)  # probably delete this
+    # model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
     # TODO: Try momentum. Try other optimizers. Try reducing learning rate once the loss plateaus.
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print('\nStarting training...\n')
 
     epochs_train_loss = np.zeros(num_epochs)
     epochs_validation_loss = np.zeros(num_epochs)
 
+    with torch.no_grad():
+        model.eval()
+        initial_loss = 0
+        for i, (inputs, labels) in enumerate(train_loader):
+            # inputs have shape (batch_size, sequence_length, num_features)
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)[:, washout:, :]
+
+            # reshape labels to match output
+            labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+            loss = loss_function(outputs, labels)
+            initial_loss += loss.item()
+
+        initial_loss /= i + 1
+        model.train()
+
+    print('Initial loss: {}\n'.format(initial_loss))
+
     for epoch in range(num_epochs):
         start = time.time()
 
         # training loop
-        for inputs, labels in train_loader:
+        for i, (inputs, labels) in enumerate(train_loader):
             # inputs have shape (batch_size, sequence_length, num_features)
             model.zero_grad()
 
@@ -157,11 +179,13 @@ def init_lstm():
             loss.backward()
             optimizer.step()
 
+        epochs_train_loss[epoch] /= i + 1
+
         # validation loop
         with torch.no_grad():
             model.eval()
 
-            for inputs, labels in test_loader:
+            for i, (inputs, labels) in enumerate(test_loader):
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)[:, washout:, :]
 
@@ -170,18 +194,19 @@ def init_lstm():
                 loss = loss_function(outputs, labels)
                 epochs_validation_loss[epoch] += loss.item()
 
+            epochs_validation_loss[epoch] /= i + 1
             model.train()
 
         end = time.time()
-        print('Epoch [{}/{}]:\n{:>17}: {:8.2f}\n{:>17}: {:8.2f}\n{:>17}: {:8.2f}\n'.format(epoch + 1,
-                                                                                           num_epochs,
-                                                                                           'Train Loss',
-                                                                                           epochs_train_loss[epoch],
-                                                                                           'Validation Loss',
-                                                                                           epochs_validation_loss[
-                                                                                               epoch],
-                                                                                           'Elapsed Time',
-                                                                                           end - start))
+        print('Epoch [{}/{}]:\n{:>17}: {:>8.7f}\n{:>17}: {:>8.7f}\n{:>17}: {:>8.2f}\n'.format(epoch + 1,
+                                                                                              num_epochs,
+                                                                                              'Train Loss',
+                                                                                              epochs_train_loss[epoch],
+                                                                                              'Validation Loss',
+                                                                                              epochs_validation_loss[
+                                                                                                  epoch],
+                                                                                              'Elapsed Time',
+                                                                                              end - start))
 
     print('\nSaving model...')
 
@@ -199,32 +224,33 @@ def init_lstm():
 
     print('\nEvaluating model...')
 
-    accuracies = torch.Tensor(0)
     with torch.no_grad():
         model.eval()
 
+        trainset_accuracies = torch.Tensor(0)
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
 
             outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
 
-            accuracies = torch.cat((accuracies, outputs), dim=0)
+            trainset_accuracies = torch.cat((trainset_accuracies, outputs), dim=0)
 
-        plot_accuracies(data=accuracies.squeeze().numpy(), title=title,
-                        savefile='lstm_training_accuracy{}.png'.format(filename),
-                        downsample_factor=downsample_factor, washout=washout)
-
+        testset_accuracies = torch.Tensor(0)
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
 
             outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
 
-            accuracies = torch.cat((accuracies, outputs), dim=0)
+            testset_accuracies = torch.cat((testset_accuracies, outputs), dim=0)
 
-        plot_accuracies(data=accuracies.squeeze().numpy(), title=title,
-                        savefile='lstm_validation_accuracy{}.png'.format(filename),
+        plot_accuracies(data=trainset_accuracies.squeeze().numpy(), title='Training {}'.format(title),
+                        savefile='lstm_training_accuracy{}'.format(filename),
+                        downsample_factor=downsample_factor, washout=washout)
+
+        plot_accuracies(data=testset_accuracies.squeeze().numpy(), title='Validation {}'.format(title),
+                        savefile='lstm_validation_accuracy{}'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 
