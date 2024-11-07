@@ -22,9 +22,9 @@ if __name__ == '__main__':
     print(annotations_vc)
 
     for i, an in enumerate(raw.annotations):
-        if i > 10:
+        if an['description'] in ['Stimulus/S 64', 'Stimulus/S 48']:
             print(an)
-        if i == 40:
+        if i == 100:
             break
 
     print(raw.info)

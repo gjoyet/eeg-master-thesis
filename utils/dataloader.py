@@ -225,7 +225,7 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     """
     subdirectory_content = os.listdir(os.path.join(path, str(subject_id)))
 
-    cols = ['session', 'run', 'response', 'confidence', 'correct']
+    cols = ['session', 'run', 'response', 'confidence', 'correct', 'choice_rt']
     dfs = []
 
     # TODO: correct criteria for .csv selection
