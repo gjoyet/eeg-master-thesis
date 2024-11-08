@@ -5,6 +5,7 @@
 
 results/
 data/
+*.pdf
 
 ### macOS ###
 # General
