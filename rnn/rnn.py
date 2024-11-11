@@ -1,3 +1,5 @@
+from typing import Iterable
+
 import numpy as np
 import seaborn as sns
 import time
@@ -11,7 +13,7 @@ import seaborn as sns
 import datetime
 
 from mvpa.decoder import plot_accuracies
-from utils.dataloader import get_pytorch_dataloader
+from utils.dataloader import get_pytorch_dataset
 from utils.logger import log
 
 matplotlib.use('macOSX')
@@ -59,12 +61,12 @@ class LSTMPredictor(nn.Module):
     def forward(self, batch):
         batch_size = batch.shape[0]
 
+        # TODO: check what happens if I do not initialize h_0 and c_0 (and hence also do not detach them).
         # Initialize hidden state (h_0, c_0)
         h_0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
         c_0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim)
 
         # Ensure we detach the hidden states between sequences to prevent backprop through time
-        # TODO: make sure chatGPT did not gaslight me into doing this.
         h_0 = h_0.detach()
         c_0 = c_0.detach()
 
@@ -74,6 +76,60 @@ class LSTMPredictor(nn.Module):
         out = self.linear(hx)
         score = self.sig(out)
         return score
+
+
+class ChronoNet(nn.Module):
+
+    def __init__(self):
+        super(ChronoNet, self).__init__()
+
+        self.cnn_layers = nn.Sequential(
+            self.MultiscaleConv1D(64, 32),
+            self.MultiscaleConv1D(96, 32),
+            self.MultiscaleConv1D(96, 32),
+        )
+
+        self.gru_layers = nn.ModuleList([
+            nn.GRU(96, 32, batch_first=True),
+            nn.GRU(32, 32, batch_first=True),
+            nn.GRU(64, 32, batch_first=True),
+            nn.GRU(96, 32, batch_first=True),
+        ])
+
+        self.linear = nn.Linear(32, 1)
+
+        self.sig = nn.Sigmoid()
+
+    def forward(self, batch):
+        # Transpose back and forth because CNN modules expect time at last dimension instead of features.
+        batch = torch.transpose(batch, 1, 2)
+        cnn_out = self.cnn_layers(batch)
+        cnn_out = torch.transpose(cnn_out, 1, 2)
+
+        gru_out_0, _ = self.gru_layers[0](cnn_out)
+        gru_out_1, _ = self.gru_layers[1](gru_out_0)
+        gru_out_2, _ = self.gru_layers[2](torch.cat((gru_out_0, gru_out_1), dim=2))
+        gru_out_3, _ = self.gru_layers[3](torch.cat((gru_out_0, gru_out_1, gru_out_2), dim=2))
+
+        # maybe test concatenating with input
+        out = self.linear(gru_out_3)
+        score = self.sig(out)
+
+        return score
+
+    class MultiscaleConv1D(nn.Module):
+        def __init__(self, in_channels: int, out_channels: int, kernel_sizes: Iterable[int] = (2, 4, 8), stride: int = 2):
+            super(ChronoNet.MultiscaleConv1D, self).__init__()
+            # iterate the list and create a ModuleList of single Conv1d blocks
+            self.kernels = nn.ModuleList()
+            for k in kernel_sizes:
+                self.kernels.append(nn.Conv1d(in_channels, out_channels, k, stride=stride, padding=k//2 - 1))
+
+        def forward(self, batch):
+            # now you can build a single output from the list of convs
+            out = [module(batch) for module in self.kernels]
+            # concatenate at dim=1 since in convolutions features are at dim=1
+            return torch.cat(out, dim=1)
 
 
 # probably delete this
@@ -94,7 +150,7 @@ def init_lstm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 5  # when 1 -> memory overload: can I save file in several steps?
+    downsample_factor = 1  # when 1 -> memory overload: can I save file in several steps?
     washout = int(1000 / downsample_factor)
     hidden_dim = 64
     num_layers = 1
@@ -115,8 +171,8 @@ def init_lstm():
 
     print('\nLoading data...')
 
-    dataset = get_pytorch_dataloader(downsample_factor=downsample_factor,
-                                     scaled=True)
+    dataset = get_pytorch_dataset(downsample_factor=downsample_factor,
+                                  scaled=True)
 
     # Split lengths (e.g., 80% train, 20% test)
     train_size = int(0.8 * len(dataset))
@@ -132,7 +188,7 @@ def init_lstm():
 
     model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim, num_layers=num_layers)
     model = model.to(device)
-    # model.apply(init_weights)  # probably delete this
+    model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
     # TODO: Try momentum. Try other optimizers. Try reducing learning rate once the loss plateaus.
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)

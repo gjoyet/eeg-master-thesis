@@ -13,20 +13,19 @@ from mne.epochs import EpochsFIF
 
 # Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
 # data of each subject inside a folder named <subject_id>.
-wd = '/Volumes/Guillaume EEG Project'
-epoch_data_path = os.path.join(wd, 'Berlin_Data/EEG/preprocessed/stim_epochs')
-behavioural_data_path = os.path.join(wd, 'Berlin_Data/EEG/raw')
+data_root = '/Volumes/Guillaume EEG Project'
+epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/preprocessed/stim_epochs')
+behavioural_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw')
 
 
 class CustomNPZDataset(Dataset):
-    def __init__(self, file_path, transform=None):
+    def __init__(self, file_path):
         # Load the .npz file in 'mmap_mode' for memory-efficient access
         self.data = np.load(file_path, mmap_mode='r')
 
         # Assume the .npz file contains two arrays: 'inputs' and 'labels'
         self.inputs = self.data['epochs']
         self.labels = self.data['labels']
-        self.transform = transform
 
     def __len__(self):
         return self.inputs.shape[0]  # Return the number of samples (rows)
@@ -36,64 +35,110 @@ class CustomNPZDataset(Dataset):
         input_data = self.inputs[idx]
         label = self.labels[idx]
 
-        # Apply any transformations if necessary
-        if self.transform:
-            input_data = self.transform(input_data)
-
         # Convert to PyTorch tensors and return
         return torch.tensor(input_data, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
 
-def get_pytorch_dataloader(downsample_factor: int = 1,
-                           scaled: bool = True,
-                           shuffle: bool = True) -> torch.utils.data.Dataset:
+# @obsolete
+# def get_pytorch_dataset(downsample_factor: int = 1,
+#                         scaled: bool = True,
+#                         shuffle: bool = True) -> torch.utils.data.Dataset:
+#     """
+#     Returns a pytorch dataset with the complete training data.
+#     Data have applied baseline, dropped NaN labels, and have been downsampled.
+#     Additionally, the data can be scale scaled.
+#     :param downsample_factor: number of samples that are collapsed into one by averaging.
+#     :param scaled: if True, data is scaled.
+#     :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
+#     :return: pytorch dataloader with training data.
+#     """
+#     filename = os.path.join(data_root, 'Data/training_data_{}Hz{}.npz'.format(int(1000 / downsample_factor),
+#                                                                               '_scaled' if scaled else ''))
+#
+#     # if file already exists, do nothing
+#     if not os.path.isfile(filename):
+#         # else load whole training data and save it in .npz file
+#         subject_ids = get_subject_ids()
+#
+#         epoch_list = []
+#         label_list = []
+#
+#         for sid in subject_ids:
+#             epochs, labels = load_subject_train_data(sid, downsample_factor=downsample_factor)
+#             epoch_list.append(epochs)
+#             label_list.append(labels)
+#
+#         epochs = np.concat(epoch_list, axis=0)
+#         labels = np.concat(label_list, axis=0)
+#         labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+#
+#         # SCALE
+#         if scaled:
+#             scaler = StandardScaler()
+#             num_e, num_t, num_c = epochs.shape
+#             epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
+#                                 (num_e, num_t, num_c))
+#
+#         if shuffle:
+#             shuffle_idxs = np.random.permutation(range(len(labels)))
+#             epochs = epochs[shuffle_idxs]
+#             labels = labels[shuffle_idxs]
+#
+#         # For smaller files, probably keep save one .npz per subject.
+#         np.savez(filename, epochs=epochs, labels=labels)
+#
+#     # Define dataset
+#     dataset = CustomNPZDataset(file_path=filename)
+#
+#     return dataset
+
+
+def get_pytorch_dataset(downsample_factor: int = 1,
+                        scaled: bool = True) -> List[torch.utils.data.Dataset]:
     """
     Returns a pytorch dataset with the complete training data.
     Data have applied baseline, dropped NaN labels, and have been downsampled.
     Additionally, the data can be scale scaled.
     :param downsample_factor: number of samples that are collapsed into one by averaging.
     :param scaled: if True, data is scaled.
-    :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
     :return: pytorch dataloader with training data.
     """
-    filename = os.path.join(wd, 'Data/training_data_{}Hz{}.npz'.format(int(1000 / downsample_factor),
-                                                                       '_scaled' if scaled else ''))
+    directory = os.path.join(data_root, 'Data/training_data_{}Hz{}'.format(int(1000 / downsample_factor),
+                                                                           '_scaled' if scaled else ''))
 
     # if file already exists, do nothing
-    if not os.path.isfile(filename):
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
         # else load whole training data and save it in .npz file
         subject_ids = get_subject_ids()
-
-        epoch_list = []
-        label_list = []
+        filenames = []
 
         for sid in subject_ids:
             epochs, labels = load_subject_train_data(sid, downsample_factor=downsample_factor)
-            epoch_list.append(epochs)
-            label_list.append(labels)
 
-        epochs = np.concat(epoch_list, axis=0)
-        labels = np.concat(label_list, axis=0)
-        labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+            labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
-        # SCALE
-        if scaled:
-            scaler = StandardScaler()
-            num_e, num_t, num_c = epochs.shape
-            epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
-                                (num_e, num_t, num_c))
+            # SCALE
+            if scaled:
+                scaler = StandardScaler()
+                num_e, num_t, num_c = epochs.shape
+                epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
+                                    (num_e, num_t, num_c))
 
-        if shuffle:
-            shuffle_idxs = np.random.permutation(range(len(labels)))
-            epochs = epochs[shuffle_idxs]
-            labels = labels[shuffle_idxs]
+            # For smaller files, probably keep save one .npz per subject.
+            filename = 'subject{}_training_data_{}Hz{}.npz'.format(sid, int(1000 / downsample_factor),
+                                                                   '_scaled' if scaled else '')
+            filenames.append(filename)
+            np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
+    else:
+        filenames = os.listdir(directory)
 
-        np.savez(filename, epochs=epochs, labels=labels)
+    # Define dataset
+    datasets = []
+    for fn in filenames:
+        datasets.append(CustomNPZDataset(file_path=os.path.join(directory, fn)))
 
-    # Define dataset and DataLoader
-    dataset = CustomNPZDataset(file_path=filename)
-
-    return dataset
+    return torch.utils.data.ConcatDataset(datasets)
 
 
 def average_augment_data(epochs: np.ndarray[float],
