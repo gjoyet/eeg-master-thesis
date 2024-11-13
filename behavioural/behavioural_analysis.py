@@ -31,6 +31,7 @@ def calculate_per_subject_metrics() -> \
 
     n = {'hc': 0, 'scz': 0}
 
+    pctgs = []
     for folder, subject, df in file_to_df_iterator(data_path, cols):
         n[subject] += 1
 
@@ -38,8 +39,14 @@ def calculate_per_subject_metrics() -> \
         lapse_rate[subject].append(1 - np.mean(np.nan_to_num(df['correct'], nan=0.0)))
         lapse_rate_drop_NA[subject].append(1 - np.nanmean(df['correct']))
 
+        # reaction time (only checking stuff, delete later)
+        val = 1.0
+        percentage_below = (df['choice_rt'].dropna() < val).mean() * 100
+        pctgs.append(percentage_below)
+        print(f"Subject {int(folder):3d}: {percentage_below:.2f}% of the values are below {val:.2f}.")
+        # print('Reaction time 95th quantile: {}'.format(df['choice_rt'].quantile(q=0.95)))
+
         # reaction time
-        print('Reaction time 95th quantile: {}'.format(df['choice_rt'].quantile(q=0.95)))
         reaction_time[subject].append(np.nanmean(df['choice_rt']))
 
         # early choice rate
@@ -58,6 +65,8 @@ def calculate_per_subject_metrics() -> \
         # TODO: maybe rather take the mean of all contrast values starting at idx instead of just the value at idx?
         contrast_threshold[subject].append(df_sorted['contrast_2_abs'].loc[idx])
         pass
+
+    print(f"\nOn average, {np.mean(pctgs)} are below {val:.2f}\n")  # delete later
 
     print('Total subjects: {}, whereof {} schizophrenia patients and {} healthy controls.'.format(n['scz'] + n['hc'],
                                                                                                   n['scz'], n['hc']))
@@ -201,8 +210,6 @@ def plot_metrics():
     # TODO: changed return of calculate_metrics() – adapt here!
     lr, lrnn, rt, er, ct = calculate_per_subject_metrics()
 
-    print(max(rt))
-
     plt.figure(figsize=(5, 6))
     sns.boxplot(lr, saturation=0.7).set_title("Boxplot of Lapse Rate (NaN counted as misses)")
     plt.savefig('results/lapse_rate.png')
@@ -270,14 +277,14 @@ def plot_corr(corr_df: pd.DataFrame):
 if __name__ == '__main__':
     plot_metrics()
 
-    ppk = psychophysical_kernel_auroc()
-
-    plot_ppk(ppk, method='auroc')
-
-    ppk = psychophysical_kernel_glm()
-
-    plot_ppk(ppk, method='weight')
-
-    corr = calculate_metric_correlation()
-
-    plot_corr(corr)
+    # ppk = psychophysical_kernel_auroc()
+    #
+    # plot_ppk(ppk, method='auroc')
+    #
+    # ppk = psychophysical_kernel_glm()
+    #
+    # plot_ppk(ppk, method='weight')
+    #
+    # corr = calculate_metric_correlation()
+    #
+    # plot_corr(corr)

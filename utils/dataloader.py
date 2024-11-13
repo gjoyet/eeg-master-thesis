@@ -94,13 +94,15 @@ class CustomNPZDataset(Dataset):
 
 
 def get_pytorch_dataset(downsample_factor: int = 1,
-                        scaled: bool = True) -> List[torch.utils.data.Dataset]:
+                        scaled: bool = True,
+                        subject_id: int = None) -> torch.utils.data.Dataset:
     """
     Returns a pytorch dataset with the complete training data.
     Data have applied baseline, dropped NaN labels, and have been downsampled.
     Additionally, the data can be scale scaled.
     :param downsample_factor: number of samples that are collapsed into one by averaging.
     :param scaled: if True, data is scaled.
+    :param subject_id: if not None, return a dataset for only that subject.
     :return: pytorch dataloader with training data.
     """
     directory = os.path.join(data_root, 'Data/training_data_{}Hz{}'.format(int(1000 / downsample_factor),
@@ -134,11 +136,19 @@ def get_pytorch_dataset(downsample_factor: int = 1,
         filenames = os.listdir(directory)
 
     # Define dataset
-    datasets = []
-    for fn in filenames:
-        datasets.append(CustomNPZDataset(file_path=os.path.join(directory, fn)))
+    if subject_id is None:
+        datasets = []
+        for fn in filenames:
+            datasets.append(CustomNPZDataset(file_path=os.path.join(directory, fn)))
 
-    return torch.utils.data.ConcatDataset(datasets)
+        return torch.utils.data.ConcatDataset(datasets)
+
+    else:
+        fn = 'subject{}_training_data_{}Hz{}.npz'.format(subject_id,
+                                                         int(1000 / downsample_factor),
+                                                         '_scaled' if scaled else '')
+
+        return CustomNPZDataset(file_path=os.path.join(directory, fn))
 
 
 def average_augment_data(epochs: np.ndarray[float],

@@ -13,13 +13,15 @@ data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG'
 
 if __name__ == '__main__':
     raw = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/13/13.vhdr'))
-    raw1 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/8/8.vhdr'))
-    raw2 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/8/8_2.vhdr'))
-    raw3 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/3/3.vhdr'))
+    raw1 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9.vhdr'))
+    raw2 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9_2.vhdr'))
+    raw3 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9_3.vhdr'))
     # raw = mne.read_epochs(os.path.join(data_path, 'preprocessed/stim_epochs/new_eeg_sj2_block1_avg_ref_with_ica_only_muscle_new_minus1000_to_1250ms_stim-epo.fif'))
 
-    annotations_vc = pd.Series(raw3.annotations.description).value_counts()
-    print(annotations_vc)
+    for r in [raw1, raw2, raw3]:
+        annotations_vc = pd.Series(raw3.annotations.description).value_counts()
+        print(annotations_vc)
+        print()
 
     for i, an in enumerate(raw.annotations):
         if an['description'] in ['Stimulus/S 64', 'Stimulus/S 48']:

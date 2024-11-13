@@ -1,4 +1,4 @@
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 import seaborn as sns
@@ -118,12 +118,13 @@ class ChronoNet(nn.Module):
         return score
 
     class MultiscaleConv1D(nn.Module):
-        def __init__(self, in_channels: int, out_channels: int, kernel_sizes: Iterable[int] = (2, 4, 8), stride: int = 2):
+        def __init__(self, in_channels: int, out_channels: int, kernel_sizes: Iterable[int] = (2, 4, 8),
+                     stride: int = 2):
             super(ChronoNet.MultiscaleConv1D, self).__init__()
             # iterate the list and create a ModuleList of single Conv1d blocks
             self.kernels = nn.ModuleList()
             for k in kernel_sizes:
-                self.kernels.append(nn.Conv1d(in_channels, out_channels, k, stride=stride, padding=k//2 - 1))
+                self.kernels.append(nn.Conv1d(in_channels, out_channels, k, stride=stride, padding=k // 2 - 1))
 
         def forward(self, batch):
             # now you can build a single output from the list of convs
@@ -146,36 +147,76 @@ def init_weights(m):
                 param.data.fill_(0)
 
 
+def get_plot_title(simple, num_epochs, learning_rate, weight_decay,
+                   num_layers=1, hidden_dim=64, downsampling=True) -> Tuple[str, str]:
+    """
+    Takes hyperparameters as arguments and returns plot title and file name.
+    :param simple:
+    :param num_epochs:
+    :param learning_rate:
+    :param weight_decay:
+    :param num_layers:
+    :param hidden_dim:
+    :param downsampling:
+    :return:
+    """
+    if simple:
+        title = 'Accuracy LSTM: ({} epochs, {} layers, hiddim = {}, lr = {}, wd = {})'.format(
+            num_epochs,
+            num_layers,
+            int(hidden_dim),
+            learning_rate,
+            weight_decay)
+
+        filename = 'lstm_{:03d}-epochs_{}-lr_{}-wd_{}-layers_{}-hiddim{}'.format(num_epochs,
+                                                                                 learning_rate,
+                                                                                 weight_decay,
+                                                                                 num_layers,
+                                                                                 int(hidden_dim),
+                                                                                 '_1000Hz' if not downsampling else '')
+
+    else:
+        title = 'Accuracy ChronoNet: ({} epochs, lr = {}, wd = {})'.format(
+            num_epochs,
+            learning_rate,
+            weight_decay)
+
+        filename = 'chrononet_{:03d}-epochs_{}-lr_{}-wd{}'.format(num_epochs,
+                                                                  learning_rate,
+                                                                  weight_decay,
+                                                                  '_1000Hz' if not downsampling else '')
+
+    return title, filename
+
+
 def init_lstm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 1  # when 1 -> memory overload: can I save file in several steps?
-    washout = int(1000 / downsample_factor)
-    hidden_dim = 64
-    num_layers = 1
+    downsample_factor = 1
+    washout_factor = 1000 / 2250
     learning_rate = 1e-4
     weight_decay = 0
-    num_epochs = 20
+    num_epochs = 15
+    simple = True
+    hidden_dim = 64
+    num_layers = 1
 
-    title = 'Accuracy LSTM: ({} epochs, {} layers, hidden dim = {}, learning rate = {})'.format(
-        num_epochs,
-        num_layers,
-        learning_rate,
-        int(hidden_dim))
-    filename = '_{:03d}-epochs_{}-layers_{}-hiddim'.format(num_epochs,
-                                                           num_layers,
-                                                           int(hidden_dim))
+    title, filename = get_plot_title(simple=simple, num_epochs=num_epochs,
+                                     learning_rate=learning_rate, weight_decay=weight_decay,
+                                     num_layers=num_layers, hidden_dim=hidden_dim)
 
     log('Starting LSTM Run')
 
     print('\nLoading data...')
 
+    subject_id = 105  # if None, train on all subjects
     dataset = get_pytorch_dataset(downsample_factor=downsample_factor,
-                                  scaled=True)
+                                  scaled=True, subject_id=subject_id)
 
     # Split lengths (e.g., 80% train, 20% test)
-    train_size = int(0.8 * len(dataset))
+    split = 0.8 if subject_id is None else 0.65
+    train_size = int(split * len(dataset))
     test_size = len(dataset) - train_size
 
     # Split the dataset
@@ -184,9 +225,13 @@ def init_lstm():
     # Create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
-    # test_loader = train_loader
 
-    model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim, num_layers=num_layers)
+    # Define model
+    if simple:
+        model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim, num_layers=num_layers)
+    else:
+        model = ChronoNet()
+
     model = model.to(device)
     model.apply(init_weights)  # probably delete this
     loss_function = nn.BCELoss()
@@ -195,13 +240,30 @@ def init_lstm():
 
     print('\nStarting training...\n')
 
-    epochs_train_loss = np.zeros(num_epochs)
-    epochs_validation_loss = np.zeros(num_epochs)
+    # !!! Changed numbering of epochs, if a bug appears it may be due to that !!!
+    epochs_train_loss = np.zeros(num_epochs + 1)
+    epochs_validation_loss = np.zeros(num_epochs + 1)
 
     with torch.no_grad():
         model.eval()
-        initial_loss = 0
+
         for i, (inputs, labels) in enumerate(train_loader):
+            # inputs have shape (batch_size, sequence_length, num_features)
+            inputs, labels = inputs.to(device), labels.to(device)
+            if i == 0:
+                outputs = model(inputs)
+                washout = int(outputs.shape[1] * washout_factor)
+
+            outputs = model(inputs)[:, washout:, :]
+
+            # reshape labels to match output
+            labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+            loss = loss_function(outputs, labels)
+            epochs_train_loss[0] += loss.item()
+
+        epochs_train_loss[0] /= i + 1
+
+        for i, (inputs, labels) in enumerate(test_loader):
             # inputs have shape (batch_size, sequence_length, num_features)
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
@@ -209,14 +271,15 @@ def init_lstm():
             # reshape labels to match output
             labels = labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
             loss = loss_function(outputs, labels)
-            initial_loss += loss.item()
+            epochs_validation_loss[0] += loss.item()
 
-        initial_loss /= i + 1
+        epochs_validation_loss[0] /= i + 1
+
         model.train()
 
-    print('Initial loss: {}\n'.format(initial_loss))
+    print('Initial loss: {}\n'.format(epochs_train_loss[0]))
 
-    for epoch in range(num_epochs):
+    for epoch in range(1, num_epochs + 1):
         start = time.time()
 
         # training loop
@@ -254,7 +317,7 @@ def init_lstm():
             model.train()
 
         end = time.time()
-        print('Epoch [{}/{}]:\n{:>17}: {:>8.7f}\n{:>17}: {:>8.7f}\n{:>17}: {:>8.2f}\n'.format(epoch + 1,
+        print('Epoch [{}/{}]:\n{:>17}: {:>8.7f}\n{:>17}: {:>8.7f}\n{:>17}: {:>8.2f}\n'.format(epoch,
                                                                                               num_epochs,
                                                                                               'Train Loss',
                                                                                               epochs_train_loss[epoch],
@@ -267,12 +330,12 @@ def init_lstm():
     print('\nSaving model...')
 
     # timestamp = datetime.datetime.now().strftime("D%Y-%m-%d_T%H-%M-%S")
-    torch.save(model.state_dict(), 'models/lstm{}.pth'.format(filename))
+    torch.save(model.state_dict(), 'models/{}.pth'.format(filename))
 
-    sns.lineplot(y=epochs_train_loss, x=range(1, num_epochs + 1), label='Training Loss')
-    sns.lineplot(y=epochs_validation_loss, x=range(1, num_epochs + 1), label='Validation Loss')
+    sns.lineplot(y=epochs_train_loss, x=range(num_epochs + 1), label='Training Loss')
+    sns.lineplot(y=epochs_validation_loss, x=range(num_epochs + 1), label='Validation Loss')
     plt.title("Loss over epochs")
-    plt.savefig('results/lstm_loss{}.png'.format(filename))
+    plt.savefig('results/{}_loss.png'.format(filename))
 
     # for testing
     # model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
@@ -302,11 +365,11 @@ def init_lstm():
             testset_accuracies = torch.cat((testset_accuracies, outputs), dim=0)
 
         plot_accuracies(data=trainset_accuracies.squeeze().numpy(), title='Training {}'.format(title),
-                        savefile='lstm_training_accuracy{}'.format(filename),
+                        savefile='{}_training_accuracy'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
         plot_accuracies(data=testset_accuracies.squeeze().numpy(), title='Validation {}'.format(title),
-                        savefile='lstm_validation_accuracy{}'.format(filename),
+                        savefile='{}_validation_accuracy'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 
