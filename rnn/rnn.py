@@ -1,7 +1,6 @@
 from typing import Iterable, Tuple
 
 import numpy as np
-import seaborn as sns
 import time
 import torch
 import torch.nn as nn
@@ -148,7 +147,7 @@ def init_weights(m):
 
 
 def get_plot_title(simple, num_epochs, learning_rate, weight_decay,
-                   num_layers=1, hidden_dim=64, downsampling=True) -> Tuple[str, str]:
+                   num_layers=1, hidden_dim=64, downsampling=True, subject_id=None) -> Tuple[str, str]:
     """
     Takes hyperparameters as arguments and returns plot title and file name.
     :param simple:
@@ -158,33 +157,34 @@ def get_plot_title(simple, num_epochs, learning_rate, weight_decay,
     :param num_layers:
     :param hidden_dim:
     :param downsampling:
+    :param subject_id:
     :return:
     """
     if simple:
-        title = 'Accuracy LSTM: ({} epochs, {} layers, hiddim = {}, lr = {}, wd = {})'.format(
+        title = 'LSTM{}: ({} epochs, {} layers, hiddim = {}, lr = {}, wd = {})'.format(
+            f' on subject #{subject_id}' if subject_id is not None else '',
             num_epochs,
             num_layers,
             int(hidden_dim),
             learning_rate,
             weight_decay)
 
-        filename = 'lstm_{:03d}-epochs_{}-lr_{}-wd_{}-layers_{}-hiddim{}'.format(num_epochs,
-                                                                                 learning_rate,
-                                                                                 weight_decay,
-                                                                                 num_layers,
-                                                                                 int(hidden_dim),
-                                                                                 '_1000Hz' if not downsampling else '')
+        filename = 'lstm_{}{:03d}-epochs{}'.format(
+            f'sj{subject_id}_' if subject_id is not None else '',
+            num_epochs,
+            '_1000Hz' if not downsampling else '')
 
     else:
-        title = 'Accuracy ChronoNet: ({} epochs, lr = {}, wd = {})'.format(
+        title = 'ChronoNet{}: ({} epochs, lr = {}, wd = {})'.format(
+            f' on subject #{subject_id}' if subject_id is not None else '',
             num_epochs,
             learning_rate,
             weight_decay)
 
-        filename = 'chrononet_{:03d}-epochs_{}-lr_{}-wd{}'.format(num_epochs,
-                                                                  learning_rate,
-                                                                  weight_decay,
-                                                                  '_1000Hz' if not downsampling else '')
+        filename = 'chrononet_{}{:03d}-epochs{}'.format(
+            f'sj{subject_id}_' if subject_id is not None else '',
+            num_epochs,
+            '_1000Hz' if not downsampling else '')
 
     return title, filename
 
@@ -193,24 +193,26 @@ def init_lstm():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # HYPERPARAMETERS
-    downsample_factor = 1
+    downsample_factor = 5
     washout_factor = 1000 / 2250
-    learning_rate = 1e-4
+    learning_rate = 1e-4  # 1e-4 for simple model, ??? for ChronoNet
     weight_decay = 0
-    num_epochs = 15
+    num_epochs = 25
     simple = True
-    hidden_dim = 64
-    num_layers = 1
+    hidden_dim = 64  # only relevant when simple = True
+    num_layers = 1   # only relevant when simple = True
 
+    subject_id = None  # if None, train on all subjects
+    compute_accuracies = True  # False makes script quicker for testing
     title, filename = get_plot_title(simple=simple, num_epochs=num_epochs,
                                      learning_rate=learning_rate, weight_decay=weight_decay,
-                                     num_layers=num_layers, hidden_dim=hidden_dim)
+                                     num_layers=num_layers, hidden_dim=hidden_dim,
+                                     subject_id=subject_id)
 
     log('Starting LSTM Run')
 
     print('\nLoading data...')
 
-    subject_id = 105  # if None, train on all subjects
     dataset = get_pytorch_dataset(downsample_factor=downsample_factor,
                                   scaled=True, subject_id=subject_id)
 
@@ -240,7 +242,6 @@ def init_lstm():
 
     print('\nStarting training...\n')
 
-    # !!! Changed numbering of epochs, if a bug appears it may be due to that !!!
     epochs_train_loss = np.zeros(num_epochs + 1)
     epochs_validation_loss = np.zeros(num_epochs + 1)
 
@@ -327,6 +328,7 @@ def init_lstm():
                                                                                               'Elapsed Time',
                                                                                               end - start))
 
+    print('\nMinimum validation loss: {:>8.7f}'.format(np.min(epochs_validation_loss)))
     print('\nSaving model...')
 
     # timestamp = datetime.datetime.now().strftime("D%Y-%m-%d_T%H-%M-%S")
@@ -336,6 +338,7 @@ def init_lstm():
     sns.lineplot(y=epochs_validation_loss, x=range(num_epochs + 1), label='Validation Loss')
     plt.title("Loss over epochs")
     plt.savefig('results/{}_loss.png'.format(filename))
+    plt.show()
 
     # for testing
     # model = LSTMPredictor(input_dim=64, hidden_dim=hidden_dim)
@@ -343,33 +346,58 @@ def init_lstm():
 
     print('\nEvaluating model...')
 
+    if not compute_accuracies:
+        return
+
     with torch.no_grad():
         model.eval()
 
-        trainset_accuracies = torch.Tensor(0)
+        trainset_scores = torch.empty(0)
+        trainset_accuracies = torch.empty(0)
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
 
+            predictions = outputs >= 0.5
+            accuracy = predictions == labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+
             outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
 
-            trainset_accuracies = torch.cat((trainset_accuracies, outputs), dim=0)
+            trainset_accuracies = torch.cat((trainset_accuracies, accuracy), dim=0)
+            trainset_scores = torch.cat((trainset_scores, outputs), dim=0)
 
-        testset_accuracies = torch.Tensor(0)
+        testset_scores = torch.empty(0)
+        testset_accuracies = torch.empty(0)
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)[:, washout:, :]
 
+            predictions = outputs >= 0.5
+            accuracy = predictions == labels.unsqueeze(-1).unsqueeze(-1).expand(-1, outputs.shape[1], -1)
+
             outputs[labels == 0] = 1 - outputs[labels == 0]  # invert scores if label is 0 (to represent accuracy)
 
-            testset_accuracies = torch.cat((testset_accuracies, outputs), dim=0)
+            testset_accuracies = torch.cat((testset_accuracies, accuracy), dim=0)
+            testset_scores = torch.cat((testset_scores, outputs), dim=0)
 
-        plot_accuracies(data=trainset_accuracies.squeeze().numpy(), title='Training {}'.format(title),
-                        savefile='{}_training_accuracy'.format(filename),
+        plot_accuracies(data=trainset_scores.squeeze().numpy(),
+                        title='Training Scores {}'.format(title),
+                        savefile='{}_train_score'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
-        plot_accuracies(data=testset_accuracies.squeeze().numpy(), title='Validation {}'.format(title),
-                        savefile='{}_validation_accuracy'.format(filename),
+        plot_accuracies(data=testset_scores.squeeze().numpy(),
+                        title='Validation Scores {}'.format(title),
+                        savefile='{}_test_score.png'.format(filename),
+                        downsample_factor=downsample_factor, washout=washout)
+
+        plot_accuracies(data=trainset_accuracies.squeeze().numpy(),
+                        title='Training Accuracy {}'.format(title),
+                        savefile='{}_train_acc.png'.format(filename),
+                        downsample_factor=downsample_factor, washout=washout)
+
+        plot_accuracies(data=testset_accuracies.squeeze().numpy(),
+                        title='Validation Accuracy {}'.format(title),
+                        savefile='{}_test_acc.png'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 
