@@ -259,7 +259,7 @@ def neurogpt_load_subject_train_data(subject_id: int,
     num_epochs, num_channels, num_timesteps = epochs.shape
 
     # DOWNSAMPLE from 1000 Hz to (1000 / downsample_factor) Hz
-    cut = num_channels % downsample_factor
+    cut = num_timesteps % downsample_factor
     epochs = np.reshape(epochs[:, :, cut:], (num_epochs, num_channels, num_timesteps // downsample_factor,
                                              downsample_factor))
     epochs = np.mean(epochs, axis=-1)
