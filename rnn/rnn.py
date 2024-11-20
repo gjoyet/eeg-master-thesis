@@ -84,8 +84,11 @@ class ChronoNet(nn.Module):
 
         self.cnn_layers = nn.Sequential(
             self.MultiscaleConv1D(64, 32),
+            # nn.ReLU(),
             self.MultiscaleConv1D(96, 32),
+            # nn.ReLU(),
             self.MultiscaleConv1D(96, 32),
+            # nn.ReLU(),
         )
 
         self.gru_layers = nn.ModuleList([
@@ -117,13 +120,12 @@ class ChronoNet(nn.Module):
         return score
 
     class MultiscaleConv1D(nn.Module):
-        def __init__(self, in_channels: int, out_channels: int, kernel_sizes: Iterable[int] = (2, 4, 8),
-                     stride: int = 2):
+        def __init__(self, in_channels: int, out_channels: int, kernel_sizes: Iterable[int] = (2, 4, 8), stride: int = 1):
             super(ChronoNet.MultiscaleConv1D, self).__init__()
             # iterate the list and create a ModuleList of single Conv1d blocks
             self.kernels = nn.ModuleList()
             for k in kernel_sizes:
-                self.kernels.append(nn.Conv1d(in_channels, out_channels, k, stride=stride, padding=k // 2 - 1))
+                self.kernels.append(nn.Conv1d(in_channels, out_channels, k, stride=stride, padding=k//2 - 1))
 
         def forward(self, batch):
             # now you can build a single output from the list of convs
@@ -197,8 +199,8 @@ def init_lstm():
     washout_factor = 1000 / 2250
     learning_rate = 1e-4  # 1e-4 for simple model, ??? for ChronoNet
     weight_decay = 0
-    num_epochs = 25
-    simple = True
+    num_epochs = 10
+    simple = False
     hidden_dim = 64  # only relevant when simple = True
     num_layers = 1   # only relevant when simple = True
 
@@ -225,6 +227,7 @@ def init_lstm():
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     # Create DataLoaders
+    # TODO: see what happens when I change batch size.
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # test num_workers = 1, 2, 4, ...
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
@@ -387,17 +390,17 @@ def init_lstm():
 
         plot_accuracies(data=testset_scores.squeeze().numpy(),
                         title='Validation Scores {}'.format(title),
-                        savefile='{}_test_score.png'.format(filename),
+                        savefile='{}_test_score'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
         plot_accuracies(data=trainset_accuracies.squeeze().numpy(),
                         title='Training Accuracy {}'.format(title),
-                        savefile='{}_train_acc.png'.format(filename),
+                        savefile='{}_train_acc'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
         plot_accuracies(data=testset_accuracies.squeeze().numpy(),
                         title='Validation Accuracy {}'.format(title),
-                        savefile='{}_test_acc.png'.format(filename),
+                        savefile='{}_test_acc'.format(filename),
                         downsample_factor=downsample_factor, washout=washout)
 
 

@@ -39,60 +39,6 @@ class CustomNPZDataset(Dataset):
         return torch.tensor(input_data, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
 
-# @obsolete
-# def get_pytorch_dataset(downsample_factor: int = 1,
-#                         scaled: bool = True,
-#                         shuffle: bool = True) -> torch.utils.data.Dataset:
-#     """
-#     Returns a pytorch dataset with the complete training data.
-#     Data have applied baseline, dropped NaN labels, and have been downsampled.
-#     Additionally, the data can be scale scaled.
-#     :param downsample_factor: number of samples that are collapsed into one by averaging.
-#     :param scaled: if True, data is scaled.
-#     :param shuffle: if True, training data is shuffled (as to prevent all epochs from the same subject being together).
-#     :return: pytorch dataloader with training data.
-#     """
-#     filename = os.path.join(data_root, 'Data/training_data_{}Hz{}.npz'.format(int(1000 / downsample_factor),
-#                                                                               '_scaled' if scaled else ''))
-#
-#     # if file already exists, do nothing
-#     if not os.path.isfile(filename):
-#         # else load whole training data and save it in .npz file
-#         subject_ids = get_subject_ids()
-#
-#         epoch_list = []
-#         label_list = []
-#
-#         for sid in subject_ids:
-#             epochs, labels = load_subject_train_data(sid, downsample_factor=downsample_factor)
-#             epoch_list.append(epochs)
-#             label_list.append(labels)
-#
-#         epochs = np.concat(epoch_list, axis=0)
-#         labels = np.concat(label_list, axis=0)
-#         labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
-#
-#         # SCALE
-#         if scaled:
-#             scaler = StandardScaler()
-#             num_e, num_t, num_c = epochs.shape
-#             epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
-#                                 (num_e, num_t, num_c))
-#
-#         if shuffle:
-#             shuffle_idxs = np.random.permutation(range(len(labels)))
-#             epochs = epochs[shuffle_idxs]
-#             labels = labels[shuffle_idxs]
-#
-#         # For smaller files, probably keep save one .npz per subject.
-#         np.savez(filename, epochs=epochs, labels=labels)
-#
-#     # Define dataset
-#     dataset = CustomNPZDataset(file_path=filename)
-#
-#     return dataset
-
-
 def get_pytorch_dataset(downsample_factor: int = 1,
                         scaled: bool = True,
                         subject_id: int = None) -> torch.utils.data.Dataset:
@@ -121,6 +67,9 @@ def get_pytorch_dataset(downsample_factor: int = 1,
             labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
             # SCALE
+            # TODO: actually this normalisation might be unnecessary at best, harmful at worst:
+            # This normalises features over all timesteps, instead of just over epochs. Might not be
+            # what we want. Maybe try BatchNorm or LayerNorm instead (ask Tianlin!).
             if scaled:
                 scaler = StandardScaler()
                 num_e, num_t, num_c = epochs.shape
@@ -149,6 +98,28 @@ def get_pytorch_dataset(downsample_factor: int = 1,
                                                          '_scaled' if scaled else '')
 
         return CustomNPZDataset(file_path=os.path.join(directory, fn))
+
+
+def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
+    directory = os.path.join(data_root, 'Data/neurogpt_training_data_{}Hz'.format(int(1000 // downsample_factor)))
+
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
+
+    subject_ids = get_subject_ids()
+
+    if len(os.listdir(directory)) < len(subject_ids):
+        filenames = []
+
+        for sid in subject_ids:
+            epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor)
+
+            labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+
+            # For smaller files, probably keep save one .npz per subject.
+            filename = 'subject{}_neurogpt_training_data_{}Hz'.format(sid, int(1000 // downsample_factor))
+            filenames.append(filename)
+            np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
 
 
 def average_augment_data(epochs: np.ndarray[float],
@@ -247,6 +218,72 @@ def load_subject_train_data(subject_id: int,
     epochs = np.transpose(epochs, axes=(0, 2, 1))
 
     return epochs, labels
+
+
+def neurogpt_load_subject_train_data(subject_id: int,
+                                     downsample_factor: int = 4) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+    """
+    Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
+    Applies baseline, drops NaN labels, downsamples.
+    Selects and interpolates channels needed for NeuroGPT.
+    :param subject_id:
+    :param downsample_factor:
+    :return: numpy array containing epoch data (of shape #epochs x #channels x #time),
+             numpy array with corresponding labels (of length #epochs).
+    """
+    epochs_dict = load_subject_epochs(epoch_data_path, subject_id)
+    results_df = load_subject_labels(behavioural_data_path, subject_id)
+
+    epochs_list = []
+    labels_list = []
+
+    for block in epochs_dict.keys():
+        epochs = epochs_dict[block]
+        epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
+        epochs = neurogpt_select_channels(epochs)
+
+        labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
+
+        # select labels for which the corresponding epoch was accepted
+        selected_labels = np.array(labels.loc[epochs.selection])
+
+        data = epochs.get_data()
+
+        # drop NaN labels (no response) and corresponding epochs
+        epochs_list.append(data[~np.isnan(selected_labels)])
+        labels_list.append(selected_labels[~np.isnan(selected_labels)])
+
+    epochs = np.concat(epochs_list, axis=0)
+    labels = np.concat(labels_list, axis=0)
+
+    num_epochs, num_channels, num_timesteps = epochs.shape
+
+    # DOWNSAMPLE from 1000 Hz to (1000 / downsample_factor) Hz
+    cut = num_channels % downsample_factor
+    epochs = np.reshape(epochs[:, :, cut:], (num_epochs, num_channels, num_timesteps // downsample_factor,
+                                             downsample_factor))
+    epochs = np.mean(epochs, axis=-1)
+
+    return epochs, labels
+
+
+def neurogpt_select_channels(epochs):
+    neurogpt_channels = 'Fp1, Fp2, F7, F3, Fz, F4, F8, T1, T3, C3, Cz, C4, T4, T2, T5, P3, Pz, P4, T6, O1, Oz, O2'.split(sep=', ')
+
+    # maps from NeuroGPT channels to Berlin Data channels
+    channel_dict = {'T3': 'T7',
+                    'T4': 'T8',
+                    'T5': 'P7',
+                    'T6': 'P8',
+                    'T1': 'FT9',  # or FT7 ?
+                    'T2': 'FT10'}  # or FT8 ?
+
+    selected_channels = [channel_dict.get(ch, ch) for ch in neurogpt_channels]
+
+    epochs = epochs.pick(selected_channels)
+    epochs = epochs.reorder_channels(selected_channels)
+
+    return epochs
 
 
 def load_subject_epochs(path: str, subject_id: int) -> Dict[int, EpochsFIF]:
@@ -358,3 +395,8 @@ def get_subject_characteristics(subject_id: int) -> Tuple[str, str]:
             return 'HC', 'Berlin'
         else:
             return 'HC', 'Basel'
+
+
+if __name__ == '__main__':
+    downsample_factor = 4
+    neurogpt_prepare_data(downsample_factor)

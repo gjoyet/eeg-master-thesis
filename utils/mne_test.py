@@ -33,6 +33,7 @@ if __name__ == '__main__':
     print(raw.info.ch_names)
 
     neurogpt_ch = 'Fp1, Fp2, F7, F3, Fz, F4, F8, T1, T3, C3, Cz, C4, T4, T2, T5, P3, Pz, P4, T6, O1, Oz, O2'.split(sep=', ')
+    print(neurogpt_ch)
 
     count = 0
     common_ch = []
@@ -55,6 +56,13 @@ if __name__ == '__main__':
     raw.plot()
     plt.show()
 
-    # fig = raw.plot_sensors(show_names=True)
-    # plt.savefig('results/')
-    # plt.show()
+    fig = raw.plot_sensors(show_names=True)
+    plt.savefig('results/')
+    plt.show()
+
+    mne.viz.plot_montage(mne.channels.read_custom_montage('/Users/joyet/Downloads/CACS-64_NO_REF.bvef'))
+    plt.show()
+
+    for mon in mne.channels.get_builtin_montages():
+        mne.viz.plot_montage(mne.channels.make_standard_montage(mon))
+        plt.show()
