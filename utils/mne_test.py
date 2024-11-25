@@ -12,25 +12,14 @@ data_path = '/Volumes/Guillaume EEG Project/Berlin_Data/EEG'
 
 
 if __name__ == '__main__':
-    raw = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/13/13.vhdr'))
-    raw1 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9.vhdr'))
-    raw2 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9_2.vhdr'))
-    raw3 = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/9/9_3.vhdr'))
-    # raw = mne.read_epochs(os.path.join(data_path, 'preprocessed/stim_epochs/new_eeg_sj2_block1_avg_ref_with_ica_only_muscle_new_minus1000_to_1250ms_stim-epo.fif'))
-
-    for r in [raw1, raw2, raw3]:
-        annotations_vc = pd.Series(raw3.annotations.description).value_counts()
-        print(annotations_vc)
-        print()
-
-    for i, an in enumerate(raw.annotations):
-        if an['description'] in ['Stimulus/S 64', 'Stimulus/S 48']:
-            print(an)
-        if i == 100:
-            break
+    raw = mne.io.read_raw_brainvision(os.path.join(data_path, 'raw/38/101_2afc_run1.vhdr'))
+    raw_epochs = mne.read_epochs(os.path.join(data_path, 'preprocessed/stim_epochs/new_eeg_sj38_block1_avg_ref_with_ica_only_muscle_new_minus1000_to_1250ms_stim-epo.fif'))
 
     print(raw.info)
     print(raw.info.ch_names)
+    print(raw_epochs.info.ch_names)
+
+    # TODO: How can the epochs have more channels than raw?????????????
 
     neurogpt_ch = 'Fp1, Fp2, F7, F3, Fz, F4, F8, T1, T3, C3, Cz, C4, T4, T2, T5, P3, Pz, P4, T6, O1, Oz, O2'.split(sep=', ')
     print(neurogpt_ch)
@@ -57,7 +46,6 @@ if __name__ == '__main__':
     plt.show()
 
     fig = raw.plot_sensors(show_names=True)
-    plt.savefig('results/')
     plt.show()
 
     mne.viz.plot_montage(mne.channels.read_custom_montage('/Users/joyet/Downloads/CACS-64_NO_REF.bvef'))

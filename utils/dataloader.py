@@ -1,3 +1,8 @@
+"""
+This file is responsible for taking files containing mne.Epochs objects, combining them with
+behavioural data (labels) and saving them in numpy format, preparing the data for being used
+in classifiers.
+"""
 import os.path
 import re
 from typing import Dict, Tuple, List
@@ -14,7 +19,7 @@ from mne.epochs import EpochsFIF
 # Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
 # data of each subject inside a folder named <subject_id>.
 data_root = '/Volumes/Guillaume EEG Project'
-epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/preprocessed/stim_epochs')
+epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw/raw_epochs')
 behavioural_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw')
 
 
@@ -101,7 +106,8 @@ def get_pytorch_dataset(downsample_factor: int = 1,
 
 
 def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
-    directory = os.path.join(data_root, 'Data/neurogpt_training_data_{}Hz'.format(int(1000 // downsample_factor)))
+    savename = 'neurogpt_training_data_{}Hz_RAW'.format(int(1000 // downsample_factor))
+    directory = os.path.join(data_root, 'Data', savename)
 
     if not os.path.isdir(directory):
         os.mkdir(directory)
@@ -109,16 +115,18 @@ def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
     subject_ids = get_subject_ids()
 
     if len(os.listdir(directory)) < len(subject_ids):
-        filenames = []
 
         for sid in subject_ids:
+            filename = 'subject{}_{}.npz'.format(sid, savename)
+            # those subjects are missing channel 'Fz'
+            if os.path.isfile(os.path.join(directory, filename)) or sid in [38] + list(range(101, 109)):
+                continue
+
             epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor)
 
             labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
             # For smaller files, probably keep save one .npz per subject.
-            filename = 'subject{}_neurogpt_training_data_{}Hz'.format(sid, int(1000 // downsample_factor))
-            filenames.append(filename)
             np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
 
 
@@ -247,7 +255,7 @@ def neurogpt_load_subject_train_data(subject_id: int,
         # select labels for which the corresponding epoch was accepted
         selected_labels = np.array(labels.loc[epochs.selection])
 
-        data = epochs.get_data()
+        data = epochs.get_data()[:, :, :2251]
 
         # drop NaN labels (no response) and corresponding epochs
         epochs_list.append(data[~np.isnan(selected_labels)])
@@ -268,7 +276,8 @@ def neurogpt_load_subject_train_data(subject_id: int,
 
 
 def neurogpt_select_channels(epochs):
-    neurogpt_channels = 'Fp1, Fp2, F7, F3, Fz, F4, F8, T1, T3, C3, Cz, C4, T4, T2, T5, P3, Pz, P4, T6, O1, Oz, O2'.split(sep=', ')
+    neurogpt_channels = 'Fp1, Fp2, F7, F3, Fz, F4, F8, T1, T3, C3, Cz, C4, T4, T2, T5, P3, Pz, P4, T6, O1, Oz, O2'.split(
+        sep=', ')
 
     # maps from NeuroGPT channels to Berlin Data channels
     channel_dict = {'T3': 'T7',
@@ -297,7 +306,7 @@ def load_subject_epochs(path: str, subject_id: int) -> Dict[int, EpochsFIF]:
 
     all_epochs = {}
 
-    for fname in filter(lambda k: '_sj{}_'.format(subject_id) in k, filenames):
+    for fname in filter(lambda k: 'sj{}_'.format(subject_id) in k, filenames):
         epochs = mne.read_epochs(os.path.join(path, fname), verbose=False)
         pattern = r"_block(\d)_"
         match = re.search(pattern, fname)
@@ -327,9 +336,16 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
                                       'wrong' not in k),
                            subdirectory_content):
         data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
-        dfs.append(data)
+        if len(data) == 55:
+            dfs.append(data)
+        else:
+            print('Subject #{}: discarding behavioural results file with {} entries.'.format(subject_id,
+                                                                                             len(data)))
 
     combined_df = pd.concat(dfs, ignore_index=True)
+
+    assert len(combined_df == 330), 'Subject #{}: behavioural results have {} entries.'.format(subject_id,
+                                                                                               len(combined_df))
 
     return combined_df
 
@@ -344,7 +360,7 @@ def get_subject_ids() -> np.ndarray:
     subject_ids = []
 
     # Regular expression pattern to match "_sj" followed by digits and ending with "_"
-    pattern = r"_sj(\d+)_"
+    pattern = r"sj(\d+)_"
 
     # Loop through each string in the list
     for fn in filenames:
@@ -368,14 +384,6 @@ def get_subject_ids() -> np.ndarray:
     except ValueError:
         pass
 
-    # TODO: subjects with discrepant bad channels
-    # subject_ids.remove(13)
-    # subject_ids.remove(24)
-    # subject_ids.remove(25)
-    # subject_ids.remove(40)
-    # subject_ids.remove(124)
-    # subject_ids.remove(137)
-
     return np.array(subject_ids)
 
 
@@ -398,5 +406,7 @@ def get_subject_characteristics(subject_id: int) -> Tuple[str, str]:
 
 
 if __name__ == '__main__':
-    downsample_factor = 4
+    # IMPORTANT: For now, NeuroGPT data is:
+    # WITH applied baseline but WITHOUT scaling (since scaling is done in NeuroGPT code)
+    downsample_factor = 1
     neurogpt_prepare_data(downsample_factor)

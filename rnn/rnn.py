@@ -198,13 +198,13 @@ def init_lstm():
     downsample_factor = 5
     washout_factor = 1000 / 2250
     learning_rate = 1e-4  # 1e-4 for simple model, ??? for ChronoNet
-    weight_decay = 0
+    weight_decay = 1
     num_epochs = 10
     simple = False
     hidden_dim = 64  # only relevant when simple = True
     num_layers = 1   # only relevant when simple = True
 
-    subject_id = None  # if None, train on all subjects
+    subject_id = 111  # if None, train on all subjects
     compute_accuracies = True  # False makes script quicker for testing
     title, filename = get_plot_title(simple=simple, num_epochs=num_epochs,
                                      learning_rate=learning_rate, weight_decay=weight_decay,
