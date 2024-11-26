@@ -7,6 +7,7 @@ import os.path
 import re
 from typing import Dict, Tuple, List
 
+import h5py
 import mne
 import numpy as np
 import pandas as pd
@@ -105,11 +106,11 @@ def get_pytorch_dataset(downsample_factor: int = 1,
         return CustomNPZDataset(file_path=os.path.join(directory, fn))
 
 
-def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
+def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz') -> None:
     savename = 'neurogpt_training_data_{}Hz_RAW'.format(int(1000 // downsample_factor))
-    directory = os.path.join(data_root, 'Data', savename)
+    directory = os.path.join(data_root, 'Data', '{}_{}'.format(savename, ftype))
 
-    if not os.path.isdir(directory):
+    if not os.path.isdir(directory) and ftype == 'hdf5':
         os.mkdir(directory)
 
     subject_ids = get_subject_ids()
@@ -117,7 +118,7 @@ def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
     if len(os.listdir(directory)) < len(subject_ids):
 
         for sid in subject_ids:
-            filename = 'subject{}_{}.npz'.format(sid, savename)
+            filename = 'subject{}_{}.{}'.format(sid, savename, ftype)
             # those subjects are missing channel 'Fz'
             if os.path.isfile(os.path.join(directory, filename)) or sid in [38] + list(range(101, 109)):
                 continue
@@ -126,8 +127,13 @@ def neurogpt_prepare_data(downsample_factor: int = 4) -> None:
 
             labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
-            # For smaller files, probably keep save one .npz per subject.
-            np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
+            if ftype == 'npz':
+                np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
+            elif ftype == 'hdf5':
+                # not sure if putting all data in same file would maybe speed up training
+                with h5py.File(os.path.join(directory, filename), "w") as f:
+                    f.create_dataset('epochs', data=epochs)
+                    f.create_dataset('labels', data=labels)
 
 
 def average_augment_data(epochs: np.ndarray[float],
@@ -409,4 +415,4 @@ if __name__ == '__main__':
     # IMPORTANT: For now, NeuroGPT data is:
     # WITH applied baseline but WITHOUT scaling (since scaling is done in NeuroGPT code)
     downsample_factor = 1
-    neurogpt_prepare_data(downsample_factor)
+    neurogpt_prepare_data(downsample_factor, ftype='hdf5')
