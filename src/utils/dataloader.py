@@ -20,7 +20,7 @@ from mne.epochs import EpochsFIF
 # Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
 # data of each subject inside a folder named <subject_id>.
 data_root = '/Volumes/Guillaume EEG Project'
-epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw/raw_epochs')
+epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/preprocessed/raw_epochs')
 behavioural_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw')
 
 
@@ -107,10 +107,11 @@ def get_pytorch_dataset(downsample_factor: int = 1,
 
 
 def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz') -> None:
-    savename = 'neurogpt_training_data_{}Hz_RAW'.format(int(1000 // downsample_factor))
+    savename = 'neurogpt_training_data_{}Hz{}'.format(int(1000 // downsample_factor),
+                                                      '_RAW' if epoch_data_path.endswith('raw_epochs') else '')
     directory = os.path.join(data_root, 'Data', '{}_{}'.format(savename, ftype))
 
-    if not os.path.isdir(directory) and ftype == 'hdf5':
+    if not os.path.isdir(directory):
         os.mkdir(directory)
 
     subject_ids = get_subject_ids()
@@ -120,7 +121,8 @@ def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz') -> Non
         for sid in subject_ids:
             filename = 'subject{}_{}.{}'.format(sid, savename, ftype)
             # those subjects are missing channel 'Fz'
-            if os.path.isfile(os.path.join(directory, filename)) or sid in [38] + list(range(101, 109)):
+            if os.path.isfile(os.path.join(directory, filename)) or \
+                    (epoch_data_path.endswith('raw_epochs') and sid in [38] + list(range(101, 109))):
                 continue
 
             epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor)

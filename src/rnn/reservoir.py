@@ -1,10 +1,8 @@
-import argparse
-
 import numpy as np
 
-from mvpa.decoder import decode_response_over_time, plot_accuracies
-from utils.dataloader import get_subject_ids, load_subject_train_data
-from utils.logger import log
+from src.mvpa.decoder import decode_response_over_time, plot_accuracies
+from src.utils.dataloader import get_subject_ids, load_subject_train_data
+from src.utils.logger import log
 
 
 '''

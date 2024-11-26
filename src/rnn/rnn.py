@@ -9,11 +9,10 @@ from torch.utils.data import DataLoader, random_split
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
-import datetime
 
-from mvpa.decoder import plot_accuracies
-from utils.dataloader import get_pytorch_dataset
-from utils.logger import log
+from src.mvpa.decoder import plot_accuracies
+from src.utils.dataloader import get_pytorch_dataset
+from src.utils.logger import log
 
 matplotlib.use('macOSX')
 torch.manual_seed(42)

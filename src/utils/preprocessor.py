@@ -8,7 +8,7 @@ from typing import List
 import pandas as pd
 import mne
 
-from utils import logger
+from src.utils import logger
 
 data_root = '/Volumes/Guillaume EEG Project'
 raw_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw')

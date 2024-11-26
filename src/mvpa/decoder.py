@@ -11,8 +11,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data, get_subject_characteristics
-from utils.logger import log
+from src.utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data
+from src.utils.logger import log
 
 
 matplotlib.use('macOSX')
