@@ -12,6 +12,7 @@ import mne
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils import resample
 import torch
 from torch.utils.data import Dataset
 
@@ -20,7 +21,7 @@ from mne.epochs import EpochsFIF
 # Subject IDs are inferred from epoch_data_path. Code in this file expects behavioural_data_path to contain
 # data of each subject inside a folder named <subject_id>.
 data_root = '/Volumes/Guillaume EEG Project'
-epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/preprocessed/raw_epochs')
+epoch_data_path = os.path.join(data_root, 'Berlin_Data/EEG/preprocessed/stim_epochs')
 behavioural_data_path = os.path.join(data_root, 'Berlin_Data/EEG/raw')
 
 
@@ -106,9 +107,10 @@ def get_pytorch_dataset(downsample_factor: int = 1,
         return CustomNPZDataset(file_path=os.path.join(directory, fn))
 
 
-def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz') -> None:
-    savename = 'neurogpt_training_data_{}Hz{}'.format(int(1000 // downsample_factor),
-                                                      '_RAW' if epoch_data_path.endswith('raw_epochs') else '')
+def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz', balanced: bool = False) -> None:
+    savename = 'neurogpt_training_data_{}Hz{}{}'.format(int(1000 // downsample_factor),
+                                                        '_RAW' if epoch_data_path.endswith('raw_epochs') else '',
+                                                        '_BALANCED' if balanced else '')
     directory = os.path.join(data_root, 'Data', '{}_{}'.format(savename, ftype))
 
     if not os.path.isdir(directory):
@@ -128,6 +130,29 @@ def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz') -> Non
             epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor)
 
             labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+
+            if balanced:
+                n1 = sum(labels)
+                n0 = len(labels) - n1
+
+                majority = None
+                if n0 > n1:
+                    majority = 0
+                if n1 > n0:
+                    majority = 1
+
+                if majority is not None:
+                    # all indices of majority class
+                    maj_idxs = np.where(labels == majority)[0]
+
+                    # sample indices of majority class to delete to balance dataset
+                    delete_idxs = resample(maj_idxs,
+                                           replace=False,
+                                           n_samples=int(abs(n1 - n0)),
+                                           random_state=42)
+
+                    epochs = np.delete(epochs, delete_idxs, axis=0)
+                    labels = np.delete(labels, delete_idxs, axis=0)
 
             if ftype == 'npz':
                 np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
@@ -417,4 +442,4 @@ if __name__ == '__main__':
     # IMPORTANT: For now, NeuroGPT data is:
     # WITH applied baseline but WITHOUT scaling (since scaling is done in NeuroGPT code)
     downsample_factor = 1
-    neurogpt_prepare_data(downsample_factor, ftype='hdf5')
+    neurogpt_prepare_data(downsample_factor, ftype='hdf5', balanced=True)
