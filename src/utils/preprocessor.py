@@ -63,7 +63,7 @@ def save_as_blocks_and_rename(raws: List[mne.io.Raw], subject_id: int) -> None:
         events, event_id = mne.events_from_annotations(raw, verbose='WARNING')
 
         # Find the onset times of the relevant annotations
-        split_onsets = [annot['onset'] for annot in raw.annotations if annot['description'] == 'Stimulus/S105']
+        split_onsets = [annot['onset']-1 for annot in raw.annotations if annot['description'] == 'Stimulus/S105']
         split_offsets = []
 
         trial_times = np.array([annot['onset'] for annot in raw.annotations if annot['description'] == 'Stimulus/S 64'])
