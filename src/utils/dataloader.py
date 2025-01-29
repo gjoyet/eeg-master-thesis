@@ -377,7 +377,8 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
 
     combined_df = pd.concat(dfs, ignore_index=True)
 
-    assert len(combined_df == 330), 'Subject #{}: behavioural results have {} entries.'.format(subject_id,
+    # TODO: make sure this is not needed anymore, then delete.
+    assert len(combined_df) == 330, 'Subject #{}: behavioural results have {} entries.'.format(subject_id,
                                                                                                len(combined_df))
 
     return combined_df
