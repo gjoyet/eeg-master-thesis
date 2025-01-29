@@ -66,13 +66,13 @@ def save_as_blocks_and_rename(raws: List[mne.io.Raw], subject_id: int) -> None:
         split_onsets = [annot['onset'] for annot in raw.annotations if annot['description'] == 'Stimulus/S105']
         split_offsets = []
 
-        trial_ends = np.array([annot['onset'] for annot in raw.annotations if annot['description'] == 'Stimulus/S151'])
+        trial_times = np.array([annot['onset'] for annot in raw.annotations if annot['description'] == 'Stimulus/S 64'])
         for t in split_onsets[1:] + [raw.times[-1]]:
             # cut at the last trial of the block + 10 seconds
-            if len(trial_ends[trial_ends < t]) == 0:
+            if len(trial_times[trial_times < t]) == 0:
                 split_onsets.remove(t)
                 continue
-            split_offsets.append(np.min([np.max(trial_ends[trial_ends < t]) + 15,
+            split_offsets.append(np.min([np.max(trial_times[trial_times < t]) + 20,
                                          raw.times[-1]]))
 
         # Iterate over consecutive pairs of split points to create new raw segments
