@@ -107,10 +107,12 @@ def get_pytorch_dataset(downsample_factor: int = 1,
         return CustomNPZDataset(file_path=os.path.join(directory, fn))
 
 
-def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz', balanced: bool = False) -> None:
-    savename = 'neurogpt_training_data_{}Hz{}{}'.format(int(1000 // downsample_factor),
-                                                        '_RAW' if epoch_data_path.endswith('raw_epochs') else '',
-                                                        '_BALANCED' if balanced else '')
+def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz',
+                          target: str = 'response', balanced: bool = False) -> None:
+    savename = 'neurogpt_training_data_{}Hz{}{}{}'.format(int(1000 // downsample_factor),
+                                                          '_RAW' if epoch_data_path.endswith('raw_epochs') else '',
+                                                          '_BALANCED' if balanced else '',
+                                                          f'_{target}')
     directory = os.path.join(data_root, 'Data', '{}_{}'.format(savename, ftype))
 
     if not os.path.isdir(directory):
@@ -127,32 +129,33 @@ def neurogpt_prepare_data(downsample_factor: int = 4, ftype: str = 'npz', balanc
                     (epoch_data_path.endswith('raw_epochs') and sid in [38] + list(range(101, 109))):
                 continue
 
-            epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor)
+            epochs, labels = neurogpt_load_subject_train_data(sid, downsample_factor, target=target)
 
-            labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
+            if target == 'response':
+                labels = (labels + 1) / 2  # transform -1 labels to 0 (since we use BCELoss later)
 
-            if balanced:
-                n1 = sum(labels)
-                n0 = len(labels) - n1
+                if balanced:
+                    n1 = sum(labels)
+                    n0 = len(labels) - n1
 
-                majority = None
-                if n0 > n1:
-                    majority = 0
-                if n1 > n0:
-                    majority = 1
+                    majority = None
+                    if n0 > n1:
+                        majority = 0
+                    if n1 > n0:
+                        majority = 1
 
-                if majority is not None:
-                    # all indices of majority class
-                    maj_idxs = np.where(labels == majority)[0]
+                    if majority is not None:
+                        # all indices of majority class
+                        maj_idxs = np.where(labels == majority)[0]
 
-                    # sample indices of majority class to delete to balance dataset
-                    delete_idxs = resample(maj_idxs,
-                                           replace=False,
-                                           n_samples=int(abs(n1 - n0)),
-                                           random_state=42)
+                        # sample indices of majority class to delete to balance dataset
+                        delete_idxs = resample(maj_idxs,
+                                               replace=False,
+                                               n_samples=int(abs(n1 - n0)),
+                                               random_state=42)
 
-                    epochs = np.delete(epochs, delete_idxs, axis=0)
-                    labels = np.delete(labels, delete_idxs, axis=0)
+                        epochs = np.delete(epochs, delete_idxs, axis=0)
+                        labels = np.delete(labels, delete_idxs, axis=0)
 
             if ftype == 'npz':
                 np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
@@ -212,12 +215,14 @@ def average_augment_data(epochs: np.ndarray[float],
 
 
 def load_subject_train_data(subject_id: int,
-                            downsample_factor: int = 1) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+                            downsample_factor: int = 1,
+                            target: str = 'response') -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
     Applies baseline, drops NaN labels, downsamples.
     :param subject_id:
     :param downsample_factor: number of samples that are collapsed into one by averaging.
+    :param target: indicates which target should be taken as label (can be 'response' or 'contrast').
     :return: numpy array containing epoch data (of shape #epochs x #timesteps x #channels),
              numpy array with corresponding labels (of length #epochs).
     """
@@ -232,16 +237,25 @@ def load_subject_train_data(subject_id: int,
         epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
         # TODO: see if I can fix NaN / inf value issues when interpolating.
         # epochs = epochs.interpolate_bads(reset_bads=False)
-        labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
-
-        # select labels for which the corresponding epoch was accepted
-        selected_labels = np.array(labels.loc[epochs.selection])
+        if target == 'response':
+            labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
+        elif target == 'contrast':
+            labels = (results_df[results_df['run'] == block][[f'contrast_diff_{i}' for i in range(1, 11)]]).reset_index(
+                drop=True)
+        else:
+            raise ValueError('Unknown target')
 
         data = epochs.get_data()
 
-        # drop NaN labels (no response) and corresponding epochs
-        epochs_list.append(data[~np.isnan(selected_labels)])
-        labels_list.append(selected_labels[~np.isnan(selected_labels)])
+        if target == 'response':
+            # select labels for which the corresponding epoch was accepted
+            selected_labels = np.array(labels.loc[epochs.selection])
+            # drop NaN labels (no response) and corresponding epochs
+            epochs_list.append(data[~np.isnan(selected_labels)])
+            labels_list.append(selected_labels[~np.isnan(selected_labels)])
+        elif target == 'contrast':
+            epochs_list.append(data.loc[epochs.selection])
+            labels_list.append(labels.loc[epochs.selection])
 
     epochs = np.concat(epochs_list, axis=0)
     labels = np.concat(labels_list, axis=0)
@@ -262,13 +276,15 @@ def load_subject_train_data(subject_id: int,
 
 
 def neurogpt_load_subject_train_data(subject_id: int,
-                                     downsample_factor: int = 4) -> Tuple[np.ndarray[float], np.ndarray[int]]:
+                                     downsample_factor: int = 4,
+                                     target: str = 'response') -> Tuple[np.ndarray[float], np.ndarray[int]]:
     """
     Loads and correctly combines epoch data and labels (behavioural outcomes) for one subject.
     Applies baseline, drops NaN labels, downsamples.
     Selects and interpolates channels needed for NeuroGPT.
     :param subject_id:
     :param downsample_factor:
+    :param target: indicates which target should be taken as label (can be 'response' or 'contrast').
     :return: numpy array containing epoch data (of shape #epochs x #channels x #time),
              numpy array with corresponding labels (of length #epochs).
     """
@@ -283,16 +299,25 @@ def neurogpt_load_subject_train_data(subject_id: int,
         epochs = epochs.apply_baseline((-1.000, -0.001), verbose=False)
         epochs = neurogpt_select_channels(epochs)
 
-        labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
-
-        # select labels for which the corresponding epoch was accepted
-        selected_labels = np.array(labels.loc[epochs.selection])
+        if target == 'response':
+            labels = (results_df[results_df['run'] == block]['response']).reset_index(drop=True)
+        elif target == 'contrast':
+            labels = (results_df[results_df['run'] == block][[f'contrast_diff_{i}' for i in range(1, 11)]]).reset_index(
+                drop=True)
+        else:
+            raise ValueError('Unknown target')
 
         data = epochs.get_data()[:, :, :2251]
 
-        # drop NaN labels (no response) and corresponding epochs
-        epochs_list.append(data[~np.isnan(selected_labels)])
-        labels_list.append(selected_labels[~np.isnan(selected_labels)])
+        if target == 'response':
+            # select labels for which the corresponding epoch was accepted
+            selected_labels = np.array(labels.loc[epochs.selection])
+            # drop NaN labels (no response) and corresponding epochs
+            epochs_list.append(data[~np.isnan(selected_labels)])
+            labels_list.append(selected_labels[~np.isnan(selected_labels)])
+        elif target == 'contrast':
+            epochs_list.append(data)
+            labels_list.append(labels.loc[epochs.selection])
 
     epochs = np.concat(epochs_list, axis=0)
     labels = np.concat(labels_list, axis=0)
@@ -359,7 +384,9 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
     """
     subdirectory_content = os.listdir(os.path.join(path, str(subject_id)))
 
-    cols = ['session', 'run', 'response', 'confidence', 'correct', 'choice_rt']
+    cols = ['session', 'run', 'response', 'confidence', 'correct', 'choice_rt',
+            *[f'contrast_left_{i}' for i in range(1, 11)],
+            *[f'contrast_right_{i}' for i in range(1, 11)]]
     dfs = []
 
     # TODO: correct criteria for .csv selection
@@ -370,16 +397,15 @@ def load_subject_labels(path: str, subject_id: int) -> pd.DataFrame:
                            subdirectory_content):
         data = pd.read_csv(os.path.join(path, str(subject_id), filename), usecols=cols)
         if len(data) == 55:
+            for i in range(1, 11):
+                data[f'contrast_diff_{i}'] = data[f'contrast_right_{i}'] - data[f'contrast_left_{i}']
+
             dfs.append(data)
         else:
             print('Subject #{}: discarding behavioural results file with {} entries.'.format(subject_id,
                                                                                              len(data)))
 
     combined_df = pd.concat(dfs, ignore_index=True)
-
-    # TODO: make sure this is not needed anymore, then delete.
-    assert len(combined_df) == 330, 'Subject #{}: behavioural results have {} entries.'.format(subject_id,
-                                                                                               len(combined_df))
 
     return combined_df
 
@@ -443,4 +469,4 @@ if __name__ == '__main__':
     # IMPORTANT: For now, NeuroGPT data is:
     # WITH applied baseline but WITHOUT scaling (since scaling is done in NeuroGPT code)
     downsample_factor = 1
-    neurogpt_prepare_data(downsample_factor, ftype='hdf5', balanced=True)
+    neurogpt_prepare_data(downsample_factor, ftype='hdf5', target='contrast', balanced=False)

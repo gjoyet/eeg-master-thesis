@@ -64,6 +64,14 @@ def init_mvpa():
 
     plot_accuracies(data=accuracies, title=title, savefile=filename, downsample_factor=args.downsample_factor)
 
+    # TODO: test this (also check these subjects are in the data and have correct behaviour files)
+    for sid in [21, 24, 40, 42, 106, 116, 206, 208]:
+        idx = np.argwhere(subject_ids == sid)[0][0]
+        plot_accuracies(data=accuracies[idx],
+                        title=f'Subject #{sid}' + title,
+                        savefile=f'subj{sid}' + filename,
+                        downsample_factor=args.downsample_factor)
+
 
 def decode_response_over_time(epochs: np.ndarray[float],
                               labels: np.ndarray[int],
@@ -90,6 +98,10 @@ def decode_response_over_time(epochs: np.ndarray[float],
         subject_accuracies.append(np.mean(scores))
 
     return np.array(subject_accuracies)
+
+
+def decode_contrast_over_time():
+    pass
 
 
 def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = None,
