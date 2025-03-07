@@ -19,8 +19,7 @@ All methods at the moment ignore confidence level. They could be adapted to weig
 '''
 
 
-def calculate_per_subject_metrics() -> \
-        Tuple[Dict[str, list], Dict[str, list], Dict[str, list], Dict[str, list], Dict[str, list]]:
+def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
     cols = ['correct', 'response_too_early', 'choice_rt', 'contrast_2']
 
     lapse_rate = {'hc': [], 'scz': []}
@@ -73,7 +72,8 @@ def calculate_per_subject_metrics() -> \
     print('Total subjects: {}, whereof {} schizophrenia patients and {} healthy controls.'.format(n['scz'] + n['hc'],
                                                                                                   n['scz'], n['hc']))
 
-    return lapse_rate, mean_accuracy, reaction_time, early_reaction_rate, contrast_threshold
+    return {'Mean Accuracy': mean_accuracy, 'Reaction Time': reaction_time, 'Lapse Rate': lapse_rate,
+            'Early Choice Rate': early_reaction_rate, 'Contrast Threshold': contrast_threshold}
 
 
 def psychophysical_kernel_auroc() -> pd.DataFrame:
@@ -209,29 +209,19 @@ def load_all_data(path: str, cols: List[str]) -> pd.DataFrame:
 
 
 def plot_metrics():
-    # TODO: changed return of calculate_metrics() – adapt here!
-    lr, lrnn, rt, er, ct = calculate_per_subject_metrics()
+    # TODO: if change return of calculate_metrics() – adapt here!
+    metrics = calculate_per_subject_metrics()
+    for variable_name, metric in metrics.items():
+        df = pd.DataFrame({
+            variable_name: metric["hc"] + metric["scz"],  # Combine both lists
+            "Participant Type": ["HC"] * len(metric["hc"]) + ["SCZ"] * len(metric["scz"])
+        })
 
-    plt.figure(figsize=(5, 6))
-    sns.boxplot(lr, saturation=0.7).set_title("Boxplot of Lapse Rate")
-    plt.savefig('results/lapse_rate.png')
-    plt.figure(figsize=(5, 6))
-    sns.boxplot(lrnn, saturation=0.7).set_title("Boxplot of Mean Accuracy")
-    plt.savefig('results/mean_accuracy.png')
-
-    plt.figure(figsize=(5, 6))
-    sns.boxplot(rt, saturation=0.7).set_title("Boxplot of Reaction Time")
-    plt.savefig('results/reaction_time.png')
-
-    plt.figure(figsize=(5, 6))
-    sns.boxplot(er, saturation=0.7).set_title("Boxplot of Early Choice Rate")
-    plt.savefig('results/early_choice_rate.png')
-
-    plt.figure(figsize=(5, 6))
-    sns.boxplot(ct, saturation=0.7).set_title("Boxplot of Contrast Threshold to reach 75% accuracy")
-    plt.savefig('results/contrast_threshold.png')
-
-    # plt.show()
+        plt.figure(figsize=(4, 6))
+        sns.violinplot(df, y=variable_name, hue='Participant Type', split=True, gap=.1, inner='quart')
+        sns.despine()
+        plt.tight_layout()
+        plt.savefig('results/{}.png'.format(variable_name.lower().replace(' ', '_')))
 
 
 def plot_ppk(ppk_df: pd.DataFrame, method: str):
