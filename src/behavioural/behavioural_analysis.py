@@ -24,7 +24,7 @@ def calculate_per_subject_metrics() -> \
     cols = ['correct', 'response_too_early', 'choice_rt', 'contrast_2']
 
     lapse_rate = {'hc': [], 'scz': []}
-    lapse_rate_drop_NA = {'hc': [], 'scz': []}
+    mean_accuracy = {'hc': [], 'scz': []}
     reaction_time = {'hc': [], 'scz': []}
     early_reaction_rate = {'hc': [], 'scz': []}
     contrast_threshold = {'hc': [], 'scz': []}
@@ -35,9 +35,11 @@ def calculate_per_subject_metrics() -> \
     for folder, subject, df in file_to_df_iterator(data_path, cols):
         n[subject] += 1
 
+        # mean accuracy
+        mean_accuracy[subject].append(np.nanmean(df['correct']))
+
         # lapse rate
-        lapse_rate[subject].append(1 - np.mean(np.nan_to_num(df['correct'], nan=0.0)))
-        lapse_rate_drop_NA[subject].append(1 - np.nanmean(df['correct']))
+        lapse_rate[subject].append(((df['correct'].isna()) & (df['response_too_early'].isna())).sum() / len(df))
 
         # reaction time (only checking stuff, delete later)
         val = 1.0
@@ -71,7 +73,7 @@ def calculate_per_subject_metrics() -> \
     print('Total subjects: {}, whereof {} schizophrenia patients and {} healthy controls.'.format(n['scz'] + n['hc'],
                                                                                                   n['scz'], n['hc']))
 
-    return lapse_rate, lapse_rate_drop_NA, reaction_time, early_reaction_rate, contrast_threshold
+    return lapse_rate, mean_accuracy, reaction_time, early_reaction_rate, contrast_threshold
 
 
 def psychophysical_kernel_auroc() -> pd.DataFrame:
@@ -211,11 +213,11 @@ def plot_metrics():
     lr, lrnn, rt, er, ct = calculate_per_subject_metrics()
 
     plt.figure(figsize=(5, 6))
-    sns.boxplot(lr, saturation=0.7).set_title("Boxplot of Lapse Rate (NaN counted as misses)")
+    sns.boxplot(lr, saturation=0.7).set_title("Boxplot of Lapse Rate")
     plt.savefig('results/lapse_rate.png')
     plt.figure(figsize=(5, 6))
-    sns.boxplot(lrnn, saturation=0.7).set_title("Boxplot of Lapse Rate (NaN ignored)")
-    plt.savefig('results/lapse_rate_drop_NA.png')
+    sns.boxplot(lrnn, saturation=0.7).set_title("Boxplot of Mean Accuracy")
+    plt.savefig('results/mean_accuracy.png')
 
     plt.figure(figsize=(5, 6))
     sns.boxplot(rt, saturation=0.7).set_title("Boxplot of Reaction Time")
