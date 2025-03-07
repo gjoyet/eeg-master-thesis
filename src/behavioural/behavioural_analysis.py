@@ -23,7 +23,7 @@ def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
     cols = ['correct', 'response_too_early', 'choice_rt', 'contrast_2']
 
     lapse_rate = {'hc': [], 'scz': []}
-    mean_accuracy = {'hc': [], 'scz': []}
+    accuracy = {'hc': [], 'scz': []}
     reaction_time = {'hc': [], 'scz': []}
     early_reaction_rate = {'hc': [], 'scz': []}
     contrast_threshold = {'hc': [], 'scz': []}
@@ -35,7 +35,7 @@ def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
         n[subject] += 1
 
         # mean accuracy
-        mean_accuracy[subject].append(np.nanmean(df['correct']))
+        accuracy[subject].append(np.nanmean(df['correct']))
 
         # lapse rate
         lapse_rate[subject].append(((df['correct'].isna()) & (df['response_too_early'].isna())).sum() / len(df))
@@ -72,7 +72,7 @@ def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
     print('Total subjects: {}, whereof {} schizophrenia patients and {} healthy controls.'.format(n['scz'] + n['hc'],
                                                                                                   n['scz'], n['hc']))
 
-    return {'Mean Accuracy': mean_accuracy, 'Reaction Time': reaction_time, 'Lapse Rate': lapse_rate,
+    return {'Accuracy': accuracy, 'Reaction Time': reaction_time, 'Lapse Rate': lapse_rate,
             'Early Choice Rate': early_reaction_rate, 'Contrast Threshold': contrast_threshold}
 
 
