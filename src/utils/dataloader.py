@@ -48,7 +48,8 @@ class CustomNPZDataset(Dataset):
 
 def get_pytorch_dataset(downsample_factor: int = 1,
                         scaled: bool = True,
-                        subject_id: int = None) -> torch.utils.data.Dataset:
+                        subject_id: int = None,
+                        balanced: bool = False) -> torch.utils.data.Dataset:
     """
     Returns a pytorch dataset with the complete training data.
     Data have applied baseline, dropped NaN labels, and have been downsampled.
@@ -56,10 +57,12 @@ def get_pytorch_dataset(downsample_factor: int = 1,
     :param downsample_factor: number of samples that are collapsed into one by averaging.
     :param scaled: if True, data is scaled.
     :param subject_id: if not None, return a dataset for only that subject.
+    :param balanced: if True, makes sure both classes of labels are equally represented.
     :return: pytorch dataloader with training data.
     """
-    directory = os.path.join(data_root, 'Data/training_data_{}Hz{}'.format(int(1000 / downsample_factor),
-                                                                           '_scaled' if scaled else ''))
+    directory = os.path.join(data_root, 'Data/training_data_{}Hz{}{}'.format(int(1000 / downsample_factor),
+                                                                             '_scaled' if scaled else '',
+                                                                             '_BALANCED' if balanced else ''))
 
     # if file already exists, do nothing
     if not os.path.isdir(directory):
@@ -67,6 +70,9 @@ def get_pytorch_dataset(downsample_factor: int = 1,
         # else load whole training data and save it in .npz file
         subject_ids = get_subject_ids()
         filenames = []
+
+        all_epochs = []
+        all_labels = []
 
         for sid in subject_ids:
             epochs, labels = load_subject_train_data(sid, downsample_factor=downsample_factor)
@@ -78,16 +84,51 @@ def get_pytorch_dataset(downsample_factor: int = 1,
             # This normalises features over all timesteps, instead of just over epochs. Might not be
             # what we want. Maybe try BatchNorm or LayerNorm instead (ask Tianlin!).
             if scaled:
-                scaler = StandardScaler()
-                num_e, num_t, num_c = epochs.shape
-                epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
-                                    (num_e, num_t, num_c))
+                # scaler = StandardScaler()
+                # num_e, num_t, num_c = epochs.shape
+                # epochs = np.reshape(scaler.fit_transform(np.reshape(epochs, (num_e * num_t, num_c))),
+                #                     (num_e, num_t, num_c))
+                mean = np.mean(epochs, axis=-1, keepdims=True)
+                std = np.std(epochs, axis=-1, keepdims=True)
+                epochs = (epochs - mean) / (std + 1e-25)
+
+            if balanced:
+                n1 = sum(labels)
+                n0 = len(labels) - n1
+
+                majority = None
+                if n0 > n1:
+                    majority = 0
+                if n1 > n0:
+                    majority = 1
+
+                if majority is not None:
+                    # all indices of majority class
+                    maj_idxs = np.where(labels == majority)[0]
+
+                    # sample indices of majority class to delete to balance dataset
+                    delete_idxs = resample(maj_idxs,
+                                           replace=False,
+                                           n_samples=int(abs(n1 - n0)),
+                                           random_state=42)
+
+                    epochs = np.delete(epochs, delete_idxs, axis=0)
+                    labels = np.delete(labels, delete_idxs, axis=0)
+
+            all_epochs.append(epochs)
+            all_labels.append(labels)
 
             # For smaller files, probably keep save one .npz per subject.
-            filename = 'subject{}_training_data_{}Hz{}.npz'.format(sid, int(1000 / downsample_factor),
-                                                                   '_scaled' if scaled else '')
+            filename = 'subject{}_training_data_{}Hz{}{}.npz'.format(sid, int(1000 / downsample_factor),
+                                                                     '_scaled' if scaled else '',
+                                                                     '_BALANCED' if balanced else '')
             filenames.append(filename)
             np.savez(os.path.join(directory, filename), epochs=epochs, labels=labels)
+
+        all_epochs = np.concatenate(all_epochs)
+        all_labels = np.concatenate(all_labels)
+        np.savez('{}.npz'.format(directory), epochs=all_epochs, labels=all_labels)
+
     else:
         filenames = os.listdir(directory)
 
@@ -468,5 +509,5 @@ def get_subject_characteristics(subject_id: int) -> Tuple[str, str]:
 if __name__ == '__main__':
     # IMPORTANT: For now, NeuroGPT data is:
     # WITH applied baseline but WITHOUT scaling (since scaling is done in NeuroGPT code)
-    downsample_factor = 1
-    neurogpt_prepare_data(downsample_factor, ftype='hdf5', target='contrast', balanced=False)
+    get_pytorch_dataset(downsample_factor=5, scaled=True, balanced=True)
+    # neurogpt_prepare_data(downsample_factor=1, ftype='hdf5', target='contrast', balanced=False)
