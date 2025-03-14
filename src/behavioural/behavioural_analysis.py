@@ -40,11 +40,11 @@ def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
         # lapse rate
         lapse_rate[subject].append(((df['correct'].isna()) & (df['response_too_early'].isna())).sum() / len(df))
 
-        # reaction time (only checking stuff, delete later)
-        val = 1.0
-        percentage_below = (df['choice_rt'].dropna() < val).mean() * 100
-        pctgs.append(percentage_below)
-        print(f"Subject {int(folder):3d}: {percentage_below:.2f}% of the values are below {val:.2f}.")
+        # # reaction time (only checking stuff, delete later)
+        # val = 1.0
+        # percentage_below = (df['choice_rt'].dropna() < val).mean() * 100
+        # pctgs.append(percentage_below)
+        # print(f"Subject {int(folder):3d}: {percentage_below:.2f}% of the values are below {val:.2f}.")
         # print('Reaction time 95th quantile: {}'.format(df['choice_rt'].quantile(q=0.95)))
 
         # reaction time
@@ -67,7 +67,7 @@ def calculate_per_subject_metrics() -> Dict[str, Dict[str, list]]:
         contrast_threshold[subject].append(df_sorted['contrast_2_abs'].loc[idx])
         pass
 
-    print(f"\nOn average, {np.mean(pctgs)} are below {val:.2f}\n")  # delete later
+    # print(f"\nOn average, {np.mean(pctgs)} are below {val:.2f}\n")  # delete later
 
     print('Total subjects: {}, whereof {} schizophrenia patients and {} healthy controls.'.format(n['scz'] + n['hc'],
                                                                                                   n['scz'], n['hc']))
@@ -211,13 +211,15 @@ def load_all_data(path: str, cols: List[str]) -> pd.DataFrame:
 def plot_metrics():
     # TODO: if change return of calculate_metrics() – adapt here!
     metrics = calculate_per_subject_metrics()
+    sns.set_context("paper", font_scale=1.25)
+
     for variable_name, metric in metrics.items():
         df = pd.DataFrame({
             variable_name: metric["hc"] + metric["scz"],  # Combine both lists
             "Participant Type": ["HC"] * len(metric["hc"]) + ["SCZ"] * len(metric["scz"])
         })
 
-        plt.figure(figsize=(4, 6))
+        plt.figure(figsize=(4, 5))
         sns.violinplot(df, y=variable_name, hue='Participant Type', split=True, gap=.1, inner='quart')
         sns.despine()
         plt.tight_layout()
@@ -226,22 +228,30 @@ def plot_metrics():
 
 def plot_ppk(ppk_df: pd.DataFrame, method: str):
     # Set up the plot
+    sns.set_context("paper", font_scale=1.25)
+
     plt.figure(figsize=(10, 6))
+
+    ppk_df['subject_type'] = ppk_df['subject_type'].str.upper()
+    print(ppk_df['subject_type'])
 
     # Plot the lines for each subject_type
     sns.lineplot(data=ppk_df, x='sample_n', y=method, hue='subject_type')
 
     # Add title and labels
     if method == 'auroc':
-        plt.title("Mean AUROC over subjects")
+        # plt.title("Mean AUROC over subjects")
         plt.hlines(y=0.5, xmin=1, xmax=10, color='black', linestyle='--', linewidth=1, alpha=0.5, label='random')
         plt.ylim((0.45, 0.75))
+        plt.ylabel("AUROC")
     if method == 'weight':
-        plt.title("Mean weight of logistic regression model over subjects")
+        # plt.title("Mean weight of logistic regression model over subjects")
+        plt.ylabel("Weight")
 
-    # plt.ylabel("Mean")
-    # plt.xlabel("Sample Number")
+    plt.xlabel("Sample Number")
     plt.legend()
+    sns.despine()
+    # plt.tight_layout()
 
     # Display the plot
     plt.savefig('results/ppk_{}.png'.format(method))

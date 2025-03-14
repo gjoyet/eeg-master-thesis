@@ -120,6 +120,8 @@ def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = No
     df = df.reset_index().rename(columns={'index': 'Time'})
     df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
 
+    sns.set_context("paper", font_scale=1.25)
+
     # Create a seaborn lineplot, passing the matrix directly to seaborn
     plt.figure(figsize=(10, 6))  # Optional: Set the figure size
 
@@ -210,4 +212,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    init_mvpa()
+    # init_mvpa()
+
+    file_name = 'mvpa_regression_decode_first_sample_linreg.npy'
+    data = np.load(f'results/data/{file_name}')
+    plot_accuracies(data=data, savefile=file_name)
