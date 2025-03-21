@@ -2,26 +2,18 @@ import argparse
 from typing import Tuple
 
 import numpy as np
-import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
 import matplotlib
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 from src.utils.dataloader import get_subject_ids, load_subject_train_data, average_augment_data
 from src.utils.logger import log
 
+from src.mvpa.plot_mvpa import plot_accuracies
 
 matplotlib.use('macOSX')
-
-
-'''
-TODOS:
-    - Frequency analysis?
-'''
 
 
 def init_mvpa():
@@ -30,11 +22,11 @@ def init_mvpa():
     Arguments are passed from command line.
     :return: None
     """
-    title, filename = get_plot_title(args.downsample_factor,
-                                     args.pseudo_k,
-                                     args.augment_factor,
-                                     args.SVM_C,
-                                     args.SVM_window_width)
+    title, filename = get_title(args.downsample_factor,
+                                args.pseudo_k,
+                                args.augment_factor,
+                                args.SVM_C,
+                                args.SVM_window_width)
 
     log(title)
 
@@ -100,56 +92,7 @@ def decode_response_over_time(epochs: np.ndarray[float],
     return np.array(subject_accuracies)
 
 
-def decode_contrast_over_time():
-    pass
-
-
-def plot_accuracies(data: np.ndarray = None, title: str = "", savefile: str = None,
-                    downsample_factor: int = 5, washout: int = 0) -> None:
-    """
-    Plots the mean accuracy over time with confidence band over subjects.
-    :param data: 2D numpy array, where each row is the decoding accuracy for one subject over all timesteps.
-    :param title: title of the plot.
-    :param savefile: file name to save the plot under. If None, no plot is saved.
-    :param downsample_factor:
-    :param washout:
-    :return: None
-    """
-
-    df = pd.DataFrame(data=data.T)
-    df = df.reset_index().rename(columns={'index': 'Time'})
-    df = df.melt(id_vars=['Time'], value_name='Mean_Accuracy', var_name='Subject')
-
-    sns.set_context("paper", font_scale=1.25)
-
-    # Create a seaborn lineplot, passing the matrix directly to seaborn
-    plt.figure(figsize=(10, 6))  # Optional: Set the figure size
-
-    # Create the lineplot, seaborn will automatically calculate confidence intervals
-    sns.lineplot(data=df, x=(df['Time'] + washout) * downsample_factor - 1000, y='Mean_Accuracy',
-                 errorbar='ci', label='Accuracy')  # BUT confidence band gets much larger with 'sd'
-    # Also, it is important to note that MVPA computes CIs over subjects, while the
-    # neural nets compute CIs over trials.Higher n makes for narrower CIs, i.e. neural
-    # nets will have much narrower CIs without this implying higher certainty.
-    sns.despine()
-
-    plt.axhline(y=0.5, color='orange', linestyle='dashdot', linewidth=1, label='Random Chance')
-    plt.axvline(x=0, ymin=0, ymax=0.05, color='black', linewidth=1, label='Stimulus Onset')
-
-    # Set plot labels and title
-    plt.xlabel('Time (ms)')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.title(title)
-
-    if savefile is not None:
-        plt.savefig('results/{}.png'.format(savefile))
-
-    # Show the plot
-    plt.show()
-
-
-def get_plot_title(downsample_factor, pseudo_k, augment_factor, C, window_width) -> Tuple[str, str]:
+def get_title(downsample_factor, pseudo_k, augment_factor, C, window_width) -> Tuple[str, str]:
     """
     Takes MVPA hyperparameters as arguments and returns plot title and file name.
     :param downsample_factor:
@@ -212,8 +155,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # init_mvpa()
-
-    file_name = 'mvpa_regression_decode_first_sample_linreg.npy'
-    data = np.load(f'results/data/{file_name}')
-    plot_accuracies(data=data, savefile=file_name)
+    init_mvpa()

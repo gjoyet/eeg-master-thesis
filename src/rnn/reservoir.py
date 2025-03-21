@@ -17,7 +17,7 @@ TODOS:
 
 class EchoStateNetwork:
     def __init__(self, input_dim: int, reservoir_dim: int = None, output_dim: int = None,
-                 density=0.2, spectral_radius=0.9, random_state=None):
+                 density=0.1, spectral_radius=0.9, random_state=None):
         np.random.seed(random_state)
 
         # Initialize network dimensions
@@ -67,7 +67,7 @@ def init_esn():
     :return: None
     """
     title = 'ESN Analysis with Default Parameters'
-    filename = 'esn_accuracy'
+    filename = 'esn_accuracy_large_concat'
 
     downsample_factor = 5
     washout = int(500 / downsample_factor)
@@ -83,8 +83,9 @@ def init_esn():
         epochs, labels = load_subject_train_data(subject_id,
                                                  downsample_factor=downsample_factor)
 
-        esn = EchoStateNetwork(input_dim=epochs.shape[-1])
-        epochs = esn.run(epochs, washout=washout)
+        esn = EchoStateNetwork(input_dim=epochs.shape[-1], reservoir_dim=256)
+        out = esn.run(epochs, washout=washout)
+        epochs = np.concat((epochs[:, washout:, :], out), axis=2)
 
         log('Decoding subject #{:03d}'.format(subject_id))
 
@@ -94,11 +95,19 @@ def init_esn():
 
     accuracies = np.array(accuracies)
 
-    np.save('results/data/{}.npy'.format(filename), accuracies)
+    np.save('results/data/esn/{}.npy'.format(filename), accuracies)
 
     plot_accuracies(data=accuracies, title=title, savefile=filename,
                     downsample_factor=downsample_factor, washout=washout)
 
 
 if __name__ == '__main__':
-    init_esn()
+    # init_esn()
+
+    for file_name in ['esn_accuracy_KEEP_FOR_COMPARISON',
+                      'esn_accuracy_concat',
+                      'esn_accuracy',
+                      'esn_accuracy_large',
+                      'esn_accuracy_large_concat']:
+        data = np.load(f'results/data/esn/{file_name}.npy')
+        plot_accuracies(data=data, savefile=file_name, washout=100)

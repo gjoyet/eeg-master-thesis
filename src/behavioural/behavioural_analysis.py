@@ -212,6 +212,7 @@ def plot_metrics():
     # TODO: if change return of calculate_metrics() – adapt here!
     metrics = calculate_per_subject_metrics()
     sns.set_context("paper", font_scale=1.25)
+    sns.set_palette(sns.color_palette()[1:])
 
     for variable_name, metric in metrics.items():
         df = pd.DataFrame({
@@ -228,7 +229,8 @@ def plot_metrics():
 
 def plot_ppk(ppk_df: pd.DataFrame, method: str):
     # Set up the plot
-    sns.set_context("paper", font_scale=1.25)
+    sns.set_context("paper", font_scale=1.75)
+    sns.set_palette(sns.color_palette("deep")[1:])
 
     plt.figure(figsize=(10, 6))
 
@@ -236,13 +238,13 @@ def plot_ppk(ppk_df: pd.DataFrame, method: str):
     print(ppk_df['subject_type'])
 
     # Plot the lines for each subject_type
-    sns.lineplot(data=ppk_df, x='sample_n', y=method, hue='subject_type')
+    sns.lineplot(data=ppk_df, x='sample_n', y=method, linewidth=1.5, hue='subject_type')
 
     # Add title and labels
     if method == 'auroc':
         # plt.title("Mean AUROC over subjects")
-        plt.hlines(y=0.5, xmin=1, xmax=10, color='black', linestyle='--', linewidth=1, alpha=0.5, label='random')
-        plt.ylim((0.45, 0.75))
+        # plt.hlines(y=0.5, xmin=1, xmax=10, color='black', linestyle='--', linewidth=1, alpha=0.5, label='random')
+        # plt.ylim((0.45, 0.75))
         plt.ylabel("AUROC")
     if method == 'weight':
         # plt.title("Mean weight of logistic regression model over subjects")
@@ -279,14 +281,14 @@ def plot_corr(corr_df: pd.DataFrame):
 if __name__ == '__main__':
     plot_metrics()
 
-    # ppk = psychophysical_kernel_auroc()
-    #
-    # plot_ppk(ppk, method='auroc')
-    #
-    # ppk = psychophysical_kernel_glm()
-    #
-    # plot_ppk(ppk, method='weight')
-    #
+    ppk = psychophysical_kernel_auroc()
+
+    plot_ppk(ppk, method='auroc')
+
+    ppk = psychophysical_kernel_glm()
+
+    plot_ppk(ppk, method='weight')
+
     # corr = calculate_metric_correlation()
     #
     # plot_corr(corr)
